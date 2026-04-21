@@ -33,25 +33,32 @@ class Stage(str, Enum):
     """
 
     # ========== Campaign 维度 ==========
-    # 冷启动失败类（72h内ROI始终 < 10%）
-    CAMPAIGN_COLD_DEAD = "campaign_cold_dead"      # 冷死亡：从未产生收入
-    CAMPAIGN_COLD_START = "campaign_cold_start"    # 冷启动：前24h ROI极低(< 10%)
+    CAMPAIGN_OBSERVING = "campaign_observing"       # 待观察：投放<24h，时间不足无法判断
+
+    # 冷启动失败类
+    CAMPAIGN_COLD_DEAD = "campaign_cold_dead"      # 冷死亡：投放>72h且从未产生收入
+    CAMPAIGN_COLD_START = "campaign_cold_start"    # 冷启动：前24h ROI < 10%
 
     # 验证期（24-72h）
     CAMPAIGN_VERIFY = "campaign_verify"            # 验证期：24-72h ROI在10-40%，关键决策点
 
     # 盈利类
-    CAMPAIGN_GROWTH = "campaign_growth"            # 成长期：72h后ROI > 40% 且持续增长
+    CAMPAIGN_GROWTH = "campaign_growth"            # 成长期：72h后ROI > 40%
     CAMPAIGN_SUSTAINED = "campaign_sustained"       # 持续盈利：ROI > 40% 超过7天
 
     # 衰退类
-    CAMPAIGN_DECLINE = "campaign_decline"          # 衰退期：ROI从高点持续下降 > 50%
-    CAMPAIGN_SHUTDOWN = "campaign_shutdown"         # 关停期：ROI < 10% 且持续72h+
+    CAMPAIGN_DECLINE = "campaign_decline"          # 衰退期：ROI从高点下降 > 50%
+    CAMPAIGN_SHUTDOWN = "campaign_shutdown"         # 关停期：ROI < 10% 持续72h+
 
     # ========== 商品（ShortPlay）维度 ==========
-    PRODUCT_PROFITABLE = "product_profitable"      # 盈利：ROI > 40%
-    PRODUCT_LOSS = "product_loss"                  # 亏损：ROI <= 40%
-    PRODUCT_DEAD = "product_dead"                  # 无收入商品
+    # 基于回测数据验证的阈值：近3天ROI>40% 精确率87%，近5天ROI在30%-80% 精确率86%
+    PRODUCT_OBSERVING = "product_observing"       # 待观察：投放 < 3天，时间不足
+    PRODUCT_ENTRY = "product_entry"               # 入场：近3天ROI均值 > 40%
+    PRODUCT_SUSTAINED = "product_sustained"       # 稳定：近5天ROI在30%-80%波动
+    PRODUCT_GROWTH = "product_growth"             # 成长：ROI > 40% 且趋势上升
+    PRODUCT_DECLINE = "product_decline"           # 衰退：ROI持续下滑 > 30%
+    PRODUCT_EXIT = "product_exit"                 # 退出：ROI < 10% 持续 5天
+    PRODUCT_DEAD = "product_dead"                 # 无投放：cost = 0
 
     # ========== 素材维度（暂无数据支撑，基于行业经验）==========
     MATERIAL_FRESH = "material_fresh"               # 新鲜期

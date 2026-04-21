@@ -218,11 +218,15 @@ const lifecycleData = reactive({
     'campaign_sustained': { value: 0.05, name: '持续盈利(>7天)' },
     'campaign_decline': { value: 0.027, name: '衰退期' }
   },
-  // Product维度（基于ROI）
+  // Product维度（基于回测数据）
   product: {
-    'product_profitable': { value: 0.377, name: '盈利(ROI>40%)' },
-    'product_loss': { value: 0.520, name: '亏损(ROI≤40%)' },
-    'product_dead': { value: 0.104, name: '无收入' }
+    'product_observing': { value: 0.15, name: '待观察(<3天)' },
+    'product_entry': { value: 0.12, name: '入场期(近3天ROI>40%)' },
+    'product_sustained': { value: 0.20, name: '稳定期(5天ROI 30-80%)' },
+    'product_growth': { value: 0.10, name: '成长期(ROI>40%上升)' },
+    'product_decline': { value: 0.18, name: '衰退期(ROI下滑>30%)' },
+    'product_exit': { value: 0.15, name: '退出期(ROI<10%)' },
+    'product_dead': { value: 0.10, name: '无投放(cost=0)' }
   }
 })
 
@@ -258,15 +262,21 @@ function initLifecycleChart() {
 
   // 颜色映射
   const colorMap: Record<string, string> = {
+    // Campaign
     '冷死亡(收入=0)': '#909399',
     '冷启动(ROI<10%)': '#f56c6c',
     '验证期(ROI 10-40%)': '#e6a23c',
     '成长期(ROI>40%)': '#67c23a',
     '持续盈利(>7天)': '#409eff',
     '衰退期': '#ff6600',
-    '盈利(ROI>40%)': '#67c23a',
-    '亏损(ROI≤40%)': '#e6a23c',
-    '无收入': '#909399'
+    // Product
+    '待观察(<3天)': '#909399',
+    '入场期(近3天ROI>40%)': '#67c23a',
+    '稳定期(5天ROI 30-80%)': '#409eff',
+    '成长期(ROI>40%上升)': '#00d084',
+    '衰退期(ROI下滑>30%)': '#ff6600',
+    '退出期(ROI<10%)': '#f56c6c',
+    '无投放(cost=0)': '#909399'
   }
 
   const option = {

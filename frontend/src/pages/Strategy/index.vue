@@ -153,7 +153,8 @@
             </el-collapse-item>
             <el-collapse-item title="广告单元维度" name="campaign">
               <div class="stage-list">
-                <div class="stage-item"><el-tag size="small" type="danger">冷死亡</el-tag> 收入=0，从未产生收入</div>
+                <div class="stage-item"><el-tag size="small" type="info">待观察</el-tag> 投放 < 24h，时间不足无法判断</div>
+                <div class="stage-item"><el-tag size="small" type="danger">冷死亡</el-tag> 投放 > 72h且从未产生收入</div>
                 <div class="stage-item"><el-tag size="small" type="info">冷启动</el-tag> 前24h ROI < 10%</div>
                 <div class="stage-item"><el-tag size="small" type="warning">验证期</el-tag> 24-72h ROI 10-40%，关键决策点</div>
                 <div class="stage-item"><el-tag size="small" type="success">成长期</el-tag> 72h后 ROI > 40%</div>
@@ -197,12 +198,17 @@
         <el-form-item label="触发阶段" prop="triggerStages">
           <el-select v-model="form.triggerStages" multiple placeholder="选择触发的生命周期阶段" style="width: 100%">
             <el-option-group v-if="form.dimension === 'product'" label="商品">
-              <el-option label="盈利(ROI>40%)" value="product_profitable" />
-              <el-option label="亏损(ROI≤40%)" value="product_loss" />
-              <el-option label="无收入" value="product_dead" />
+              <el-option label="待观察(<3天)" value="product_observing" />
+              <el-option label="入场期(近3天ROI>40%)" value="product_entry" />
+              <el-option label="稳定期(5天ROI均在30-80%)" value="product_sustained" />
+              <el-option label="成长期(ROI>40%且上升)" value="product_growth" />
+              <el-option label="衰退期(ROI下滑>30%)" value="product_decline" />
+              <el-option label="退出期(ROI<10%)" value="product_exit" />
+              <el-option label="无投放" value="product_dead" />
             </el-option-group>
             <el-option-group v-else label="广告单元">
-              <el-option label="冷死亡(收入=0)" value="campaign_cold_dead" />
+              <el-option label="待观察(<24h)" value="campaign_observing" />
+              <el-option label="冷死亡(>72h无收入)" value="campaign_cold_dead" />
               <el-option label="冷启动(ROI<10%)" value="campaign_cold_start" />
               <el-option label="验证期(ROI 10-40%)" value="campaign_verify" />
               <el-option label="成长期(ROI>40%)" value="campaign_growth" />
@@ -445,17 +451,22 @@ const formRules = {
 function formatStage(stage: string) {
   const map: Record<string, string> = {
     // Campaign维度（基于ROI）
-    'campaign_cold_dead': '冷死亡(收入=0)',
+    'campaign_observing': '待观察(<24h)',
+    'campaign_cold_dead': '冷死亡(>72h无收入)',
     'campaign_cold_start': '冷启动(ROI<10%)',
     'campaign_verify': '验证期(ROI 10-40%)',
     'campaign_growth': '成长期(ROI>40%)',
     'campaign_sustained': '持续盈利(>7天)',
     'campaign_decline': '衰退期',
     'campaign_shutdown': '关停期',
-    // Product维度（基于ROI）
-    'product_profitable': '盈利(ROI>40%)',
-    'product_loss': '亏损(ROI≤40%)',
-    'product_dead': '无收入'
+    // Product维度（基于回测数据）
+    'product_observing': '待观察(<3天)',
+    'product_entry': '入场期(近3天ROI>40%)',
+    'product_sustained': '稳定期(5天ROI均30-80%)',
+    'product_growth': '成长期(ROI>40%上升)',
+    'product_decline': '衰退期(下滑>30%)',
+    'product_exit': '退出期(ROI<10%)',
+    'product_dead': '无投放(cost=0)'
   }
   return map[stage] || stage
 }

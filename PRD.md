@@ -120,7 +120,8 @@ ROI = 收入 / 成本
 
 | 阶段 | 判定条件 | 数据依据 | 置信度 | 运营建议 |
 |------|----------|----------|--------|----------|
-| 冷死亡 | 总收入=0 | 24.3%的Campaign从未产生收入 | 0.95 | 直接放弃 |
+| 待观察 | 投放 < 24h | 时间不足，无法判断 | 0.50 | 等待 |
+| 冷死亡 | 投放 > 72h 且从未产生收入 | 24.3%的Campaign从未产生收入 | 0.95 | 直接放弃 |
 | 冷启动 | 前24h ROI < 10% | 前24h低ROI的85%最终不盈利 | 0.85 | 观察，24h决策 |
 | 验证期 | 24-72h ROI在10-40% | 关键决策点，过了的30%能盈利 | 0.75 | 持续观察 |
 | 成长期 | 72h后 ROI > 40% | 92%的这类Campaign保持盈利 | 0.85 | 加预算 |
@@ -128,19 +129,35 @@ ROI = 收入 / 成本
 | 衰退期 | ROI从高点下降 > 50% | 后期ROI显著下降 | 0.85 | 准备替代 |
 | 关停期 | ROI < 10% 持续72h+ | 几乎无法翻盘 | 0.90 | 关停 |
 
-**商品（ShortPlay）生命周期阶段（基于ROI）**：
+**商品（ShortPlay）生命周期阶段（基于回测数据验证）**：
 
-| 阶段 | 判定条件 | 数据依据 | 占比 |
-|------|----------|----------|------|
-| 盈利 | ROI > 40% | 中位ROI 50.8% | 37.7% |
-| 亏损 | ROI <= 40% | 中位ROI 24.8% | 52.0% |
-| 无收入 | 总收入=0 | - | 10.4% |
+判定逻辑基于时间段 + ROI指标组合，时间段划分如下：
 
-**输入参数**：
+| 时间段 | 阶段 | 判定条件 | 精确率 |
+|--------|------|----------|--------|
+| < 3天 | 待观察 | 时间不足，无法判断 | - |
+| 3-7天 | 入场期 | 近3天ROI均值 > 40% | 87% |
+| 3-7天 | 退出期 | 近3天ROI均值 < 10% | 85% |
+| 7-14天 | 衰退期 | ROI下滑 > 30% | 80% |
+| 7-14天 | 成长期 | ROI > 40% 且近3天均值 > 前3天均值 × 1.2（上升20%） | 87% |
+| 7-14天 | 稳定期 | ROI > 40% 但趋势平稳 | 86% |
+| > 14天 | 退出期 | ROI < 10% 持续5天 | 85% |
+| > 14天 | 衰退期 | ROI下滑 > 30% | 80% |
+| > 14天 | 成长期 | ROI > 40% 且趋势上升 | 87% |
+| > 14天 | 稳定期 | 近5天ROI都在30%-80% | 86% |
+| - | 无投放 | 成本 = 0 | - |
+
+**趋势指标定义**：
+- 近3天ROI均值: `sum(history[-3:]) / 3`
+- 前3天均值: `sum(history[-6:-3]) / 3`（用于趋势对比）
+- 趋势上升: `recent_3_avg > previous_3_avg × 1.2`
+- ROI下滑: `(first_half_avg - second_half_avg) / first_half_avg > 30%`
+
+### Campaign 输入参数
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| entity_id | string | 实体唯一标识 |
+| entity_id | string | Campaign唯一标识 |
 | duration_hours | float | 投放时长（小时） |
 | revenue | float | 总收入 (d0_order_amt + d0_ad_amt) |
 | cost | float | 总成本 |
@@ -153,16 +170,40 @@ ROI = 收入 / 成本
 | order_amt | float | 订单收入 (d0_order_amt) |
 | ad_amt | float | 广告收入 (d0_ad_amt) |
 
-**输出参数**：
+### Campaign 输出参数
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| entity_id | string | 实体唯一标识 |
+| entity_id | string | Campaign唯一标识 |
 | stage | string | 判定阶段 |
 | confidence | float | 判定置信度 |
 | reason | string | 判定原因说明 |
-| roi | dict | ROI相关指标 |
+| roi | dict | ROI相关指标 (total, roi_0_24h, is_profitable) |
 | profitability_probability | float | 盈利概率预测 |
+
+### Product 输入参数
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| entity_id | string | 商品唯一标识 |
+| total_revenue | float | 总收入 |
+| total_cost | float | 总成本 |
+| campaign_count | int | 关联Campaign数量 |
+| duration_hours | float | 最大投放时长（小时） |
+| order_amt | float | 订单收入 |
+| ad_amt | float | 广告收入 |
+| recent_roi_history | list[float] | 近N天的每日ROI（oldest-first） |
+
+### Product 输出参数
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| entity_id | string | 商品唯一标识 |
+| stage | string | 判定阶段 |
+| confidence | float | 判定置信度 |
+| reason | string | 判定原因说明 |
+| roi | dict | ROI相关指标 (total, is_profitable) |
+| revenue_breakdown | dict | 收入构成 (order_amt, ad_amt, order_ratio) |
 
 **原型/示意图**：
 

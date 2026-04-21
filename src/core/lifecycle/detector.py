@@ -178,12 +178,25 @@ class CampaignLifecycleDetector:
         roi_72plus = revenue_72plus / cost_72plus if cost_72plus > 0 else 0
         roi_total = revenue / cost if cost > 0 else 0
 
-        # ========== 1. 冷死亡: 从未产生收入 ==========
-        if revenue == 0:
+        # ========== 0. 待观察: 投放<24h，时间不足无法判断 ==========
+        if duration_hours < 24:
+            return DetectionResult(
+                stage=Stage.CAMPAIGN_OBSERVING,
+                confidence=0.50,
+                reason=f"待观察: 投放{duration_hours:.0f}h < 24h，时间不足无法判断",
+                metrics={
+                    "duration_hours": duration_hours,
+                    "revenue": revenue,
+                    "roi": roi_total
+                }
+            )
+
+        # ========== 1. 冷死亡: 投放>72h且从未产生收入 ==========
+        if duration_hours > 72 and revenue == 0:
             return DetectionResult(
                 stage=Stage.CAMPAIGN_COLD_DEAD,
                 confidence=0.95,
-                reason=f"冷死亡: 总收入=0，持续{duration_hours:.0f}h无收入",
+                reason=f"冷死亡: 投放{duration_hours:.0f}h，从未产生收入",
                 metrics={
                     "revenue": 0,
                     "cost": cost,
@@ -206,7 +219,7 @@ class CampaignLifecycleDetector:
             )
 
         # ========== 3. 冷启动: 前24h ROI < 10% ==========
-        if duration_hours <= 24 and roi_0_24h < self.roi.ROI_VERY_LOW:
+        if duration_hours >= 24 and roi_0_24h < self.roi.ROI_VERY_LOW:
             return DetectionResult(
                 stage=Stage.CAMPAIGN_COLD_START,
                 confidence=0.85,
@@ -234,7 +247,6 @@ class CampaignLifecycleDetector:
 
         # ========== 5. 持续盈利: ROI > 40% 超过7天 ==========
         if duration_hours > 168 and roi_total > self.roi.PROFITABLE_ROI:
-            # 检查是否持续保持高ROI
             if roi_72plus > self.roi.PROFITABLE_ROI:
                 return DetectionResult(
                     stage=Stage.CAMPAIGN_SUSTAINED,
@@ -274,11 +286,24 @@ class CampaignLifecycleDetector:
                     }
                 )
 
-        # ========== 8. 稳定期（默认）: ROI相对稳定 ==========
+        # ========== 8. 冷启动（24h内）: 24-72h内ROI仍然极低 ==========
+        if 24 < duration_hours <= 72 and roi_total < self.roi.ROI_VERY_LOW:
+            return DetectionResult(
+                stage=Stage.CAMPAIGN_COLD_START,
+                confidence=0.80,
+                reason=f"冷启动: ROI={roi_total*100:.1f}% < 10%，持续低迷",
+                metrics={
+                    "roi": roi_total,
+                    "duration_hours": duration_hours,
+                    "failure_probability": 0.80
+                }
+            )
+
+        # ========== 9. 待观察（默认）: 需要更多数据 ==========
         return DetectionResult(
-            stage=Stage.CAMPAIGN_VERIFY,  # 归类为验证期
-            confidence=0.60,
-            reason=f"验证期: ROI={roi_total*100:.1f}%，持续观察中",
+            stage=Stage.CAMPAIGN_OBSERVING,
+            confidence=0.50,
+            reason=f"待观察: ROI={roi_total*100:.1f}%，持续{duration_hours:.0f}h",
             metrics={
                 "roi": roi_total,
                 "duration_hours": duration_hours
@@ -330,9 +355,16 @@ class ProductLifecycleDetector:
         duration_hours: float,
         order_amt: float = 0,
         ad_amt: float = 0,
+        recent_roi_history: list[float] | None = None,
     ) -> DetectionResult:
         """
         检测商品生命周期阶段
+
+        基于时间段 + ROI指标:
+        - < 3天: OBSERVING
+        - 3-7天: VALIDATING (ROI > 40% → ENTRY, ROI < 10% → EXIT)
+        - 7-14天: CONFIRMING (趋势确认)
+        - > 14天: SUSTAINED/DECLINE
 
         Args:
             total_revenue: 总收入
@@ -341,53 +373,198 @@ class ProductLifecycleDetector:
             duration_hours: 最大投放时长
             order_amt: 订单收入
             ad_amt: 广告收入
+            recent_roi_history: 近N天的每日ROI（oldest-first，最早在前）
         """
+        recent_roi_history = recent_roi_history or []
 
         roi = total_revenue / total_cost if total_cost > 0 else 0
-        order_ratio = order_amt / total_revenue if total_revenue > 0 else 0
+        days = duration_hours / 24  # 转换为天数
 
-        # ========== 无收入 ==========
-        if total_revenue == 0:
+        # ========== DEAD: 无投放 ==========
+        if total_cost == 0:
             return DetectionResult(
                 stage=Stage.PRODUCT_DEAD,
                 confidence=0.95,
-                reason=f"无收入商品: 总收入=0，{campaign_count}个Campaign",
-                metrics={
-                    "total_revenue": 0,
-                    "campaign_count": campaign_count
-                }
+                reason="无投放: 成本为0",
+                metrics={"total_revenue": total_revenue, "total_cost": total_cost}
             )
 
-        # ========== 盈利商品 ==========
-        if roi > self.roi.PROFITABLE_ROI:
-            if duration_hours > 168:
-                reason = f"长期盈利商品: ROI={roi*100:.1f}% > 40%，持续{duration_hours:.0f}h"
-            else:
-                reason = f"盈利商品: ROI={roi*100:.1f}% > 40%"
-
+        # ========== < 3天: OBSERVING ==========
+        if days < 3:
             return DetectionResult(
-                stage=Stage.PRODUCT_PROFITABLE,
-                confidence=0.85,
-                reason=reason,
-                metrics={
-                    "roi": roi,
-                    "total_revenue": total_revenue,
-                    "campaign_count": campaign_count,
-                    "order_ratio": order_ratio
-                }
+                stage=Stage.PRODUCT_OBSERVING,
+                confidence=0.50,
+                reason=f"待观察: 投放{days:.0f}天 < 3天，时间不足",
+                metrics={"duration_hours": duration_hours, "roi": roi}
             )
 
-        # ========== 亏损商品 ==========
+        # ========== 3-7天: VALIDATING ==========
+        if 3 <= days < 7:
+            if len(recent_roi_history) >= 3:
+                recent_3_avg = sum(recent_roi_history[-3:]) / 3
+                if recent_3_avg > 0.40:
+                    return DetectionResult(
+                        stage=Stage.PRODUCT_ENTRY,
+                        confidence=0.87,
+                        reason=f"入场期: 近3天ROI均值={recent_3_avg*100:.1f}% > 40%",
+                        metrics={"roi": roi, "recent_3_avg": recent_3_avg}
+                    )
+                if recent_3_avg < 0.10:
+                    return DetectionResult(
+                        stage=Stage.PRODUCT_EXIT,
+                        confidence=0.85,
+                        reason=f"退出期: ROI={recent_3_avg*100:.1f}% < 10%",
+                        metrics={"roi": roi, "recent_3_avg": recent_3_avg}
+                    )
+            return DetectionResult(
+                stage=Stage.PRODUCT_OBSERVING,
+                confidence=0.60,
+                reason=f"验证中: ROI={roi*100:.1f}%，等待更多信息",
+                metrics={"roi": roi}
+            )
+
+        # ========== 7-14天: CONFIRMING ==========
+        if 7 <= days < 14:
+            return self._detect_confirming_phase(recent_roi_history, roi)
+
+        # ========== > 14天: SUSTAINED/DECLINE ==========
+        if days >= 14:
+            return self._detect_sustained_phase(recent_roi_history, roi)
+
+        # ========== 默认 ==========
         return DetectionResult(
-            stage=Stage.PRODUCT_LOSS,
-            confidence=0.80,
-            reason=f"亏损商品: ROI={roi*100:.1f}% <= 40%",
-            metrics={
-                "roi": roi,
-                "total_revenue": total_revenue,
-                "campaign_count": campaign_count,
-                "order_ratio": order_ratio
-            }
+            stage=Stage.PRODUCT_OBSERVING,
+            confidence=0.50,
+            reason=f"观察中: ROI={roi*100:.1f}%",
+            metrics={"roi": roi}
+        )
+
+    def _detect_confirming_phase(self, recent_roi_history: list[float], roi: float) -> DetectionResult:
+        """7-14天确认阶段"""
+        # EXIT: ROI < 10%
+        if len(recent_roi_history) >= 3:
+            recent_3_avg = sum(recent_roi_history[-3:]) / 3
+            if recent_3_avg < 0.10:
+                return DetectionResult(
+                    stage=Stage.PRODUCT_EXIT,
+                    confidence=0.85,
+                    reason=f"退出期: ROI={recent_3_avg*100:.1f}% < 10%",
+                    metrics={"roi": roi}
+                )
+
+        # DECLINE: ROI 下滑 > 30%  (优先于 SUSTAINED)
+        if len(recent_roi_history) >= 5:
+            mid = len(recent_roi_history) // 2
+            first_half = recent_roi_history[:mid]
+            second_half = recent_roi_history[mid:]
+            if first_half and second_half:
+                first_avg = sum(first_half) / len(first_half)
+                second_avg = sum(second_half) / len(second_half)
+                if first_avg > 0 and (first_avg - second_avg) / first_avg > 0.30:
+                    return DetectionResult(
+                        stage=Stage.PRODUCT_DECLINE,
+                        confidence=0.80,
+                        reason=f"衰退期: ROI下降{((first_avg-second_avg)/first_avg)*100:.1f}% > 30%",
+                        metrics={"roi": roi, "first_half_avg": first_avg, "second_half_avg": second_avg}
+                    )
+
+        # GROWTH: ROI > 40% + 趋势上升 > 20%
+        if len(recent_roi_history) >= 6:
+            recent_3_avg = sum(recent_roi_history[-3:]) / 3
+            previous_3_avg = sum(recent_roi_history[-6:-3]) / 3
+            if recent_3_avg > 0.40 and previous_3_avg > 0 and recent_3_avg > previous_3_avg * 1.2:
+                return DetectionResult(
+                    stage=Stage.PRODUCT_GROWTH,
+                    confidence=0.87,
+                    reason=f"成长期: ROI>{recent_3_avg*100:.1f}% 且趋势上升{((recent_3_avg/previous_3_avg)-1)*100:.0f}%",
+                    metrics={"roi": roi, "recent_3_avg": recent_3_avg, "previous_3_avg": previous_3_avg}
+                )
+
+        # SUSTAINED: ROI > 40% 但趋势平稳
+        if len(recent_roi_history) >= 3:
+            recent_3_avg = sum(recent_roi_history[-3:]) / 3
+            if recent_3_avg > 0.40:
+                return DetectionResult(
+                    stage=Stage.PRODUCT_SUSTAINED,
+                    confidence=0.86,
+                    reason=f"稳定期: ROI={recent_3_avg*100:.1f}% > 40%，趋势平稳",
+                    metrics={"roi": roi, "recent_3_avg": recent_3_avg}
+                )
+
+        return DetectionResult(
+            stage=Stage.PRODUCT_OBSERVING,
+            confidence=0.60,
+            reason=f"确认中: ROI={roi*100:.1f}%",
+            metrics={"roi": roi}
+        )
+
+    def _detect_sustained_phase(self, recent_roi_history: list[float], roi: float) -> DetectionResult:
+        """>14天稳定/衰退阶段"""
+        # EXIT: ROI < 10% 持续 5天
+        if len(recent_roi_history) >= 5 and all(r < 0.10 for r in recent_roi_history[-5:]):
+            return DetectionResult(
+                stage=Stage.PRODUCT_EXIT,
+                confidence=0.85,
+                reason="退出期: ROI < 10% 持续5天",
+                metrics={"roi": roi}
+            )
+
+        # DECLINE: ROI 下滑 > 30%
+        if len(recent_roi_history) >= 5:
+            mid = len(recent_roi_history) // 2
+            first_half = recent_roi_history[:mid]
+            second_half = recent_roi_history[mid:]
+            if first_half and second_half:
+                first_avg = sum(first_half) / len(first_half)
+                second_avg = sum(second_half) / len(second_half)
+                if first_avg > 0 and (first_avg - second_avg) / first_avg > 0.30:
+                    return DetectionResult(
+                        stage=Stage.PRODUCT_DECLINE,
+                        confidence=0.80,
+                        reason=f"衰退期: ROI下降{((first_avg-second_avg)/first_avg)*100:.1f}% > 30%",
+                        metrics={"roi": roi}
+                    )
+
+        # GROWTH: ROI > 40% + 趋势上升
+        if len(recent_roi_history) >= 6:
+            recent_3_avg = sum(recent_roi_history[-3:]) / 3
+            previous_3_avg = sum(recent_roi_history[-6:-3]) / 3
+            if recent_3_avg > 0.40 and previous_3_avg > 0 and recent_3_avg > previous_3_avg * 1.2:
+                return DetectionResult(
+                    stage=Stage.PRODUCT_GROWTH,
+                    confidence=0.87,
+                    reason=f"成长期: ROI>{recent_3_avg*100:.1f}% 且趋势上升",
+                    metrics={"roi": roi}
+                )
+
+        # SUSTAINED: ROI 30-80% 波动
+        if len(recent_roi_history) >= 5:
+            recent_5 = recent_roi_history[-5:]
+            recent_3_avg = sum(recent_roi_history[-3:]) / 3
+            if 0.30 <= recent_3_avg <= 0.80 and all(0.30 <= r <= 0.80 for r in recent_5):
+                return DetectionResult(
+                    stage=Stage.PRODUCT_SUSTAINED,
+                    confidence=0.86,
+                    reason=f"稳定期: ROI={recent_3_avg*100:.1f}% 在30-80%波动",
+                    metrics={"roi": roi}
+                )
+
+        # ENTRY: ROI > 40% 但不满足GROWTH条件
+        if len(recent_roi_history) >= 3:
+            recent_3_avg = sum(recent_roi_history[-3:]) / 3
+            if recent_3_avg > 0.40:
+                return DetectionResult(
+                    stage=Stage.PRODUCT_ENTRY,
+                    confidence=0.87,
+                    reason=f"入场期: ROI={recent_3_avg*100:.1f}% > 40%",
+                    metrics={"roi": roi}
+                )
+
+        return DetectionResult(
+            stage=Stage.PRODUCT_OBSERVING,
+            confidence=0.50,
+            reason=f"观察中: ROI={roi*100:.1f}%",
+            metrics={"roi": roi}
         )
 
 
