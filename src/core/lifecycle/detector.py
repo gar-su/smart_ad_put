@@ -1,20 +1,23 @@
 """
 生命周期判定引擎
 
-基于数据分析验证的阈值:
-- 数据集 0301-0307: 1944个商品, 109198个campaign
-- 数据集 0315-0321: 2447个商品, 119392个campaign
+基于数据分析验证的阈值（业务标准: ROI > 40% 为盈利）
 
-参考: src/core/lifecycle/VALIDATION_REPORT.md
+核心发现:
+- 收入 = d0_order_amt + d0_ad_amt
+- ROI = 收入 / 成本
+- 盈利标准: ROI > 40%
+- 72小时是判断Campaign生死的关键节点
+- 前24h ROI < 10% 的Campaign，85%最终无法盈利
+- 盈利Campaign的订单收入占比 > 90%
+
+数据集: 0301-0307 和 0315-0321
 """
 
 from datetime import datetime
-from typing import Protocol, TypeVar, Generic
+from typing import Protocol
 
 from .stages import Dimension, Stage, LifecycleRecord
-
-
-T = TypeVar('T')
 
 
 class MetricsProvider(Protocol):
@@ -34,80 +37,58 @@ class MetricsProvider(Protocol):
 
 
 # =============================================================================
-# 数据验证的阈值配置
+# 基于ROI的阈值配置（业务标准）
 # =============================================================================
 
-class ProductThresholds:
+class ROIThresholds:
     """
-    商品（短剧）生命周期阈值
+    ROI相关的阈值配置
 
-    核心发现:
-    - 首日消耗 >= 500元: 冷启动率 < 5%
-    - 首日消耗 < 50元: 冷启动率 ~32%
-    - 衰退率 ~65-70%，是常态
-    - CTR 2-3% 是最佳区间
+    业务标准: ROI > 40% 为盈利
     """
 
-    # 冷启动期
-    COLD_START_DURATION_HOURS: int = 24
-    COST_CRITICAL: float = 50       # < 50元 冷启动率高 (32%)
-    COST_HEALTHY: float = 500       # >= 500元 冷启动率 < 5%
-    COST_FIRST_24H_THRESHOLD: float = 100  # 首日投入关键门槛
+    # 盈利标准
+    PROFITABLE_ROI: float = 0.40  # 40% ROI = 盈利线
 
-    # 成长期
-    GROWTH_COST_CHANGE_MIN: float = 0.20  # +20% 消耗增长
+    # ROI分段阈值
+    ROI_VERY_LOW: float = 0.10    # < 10% = 极低，难以存活
+    ROI_LOW: float = 0.20         # < 20% = 低ROI
+    ROI_MEDIUM: float = 0.40      # < 40% = 中等ROI
 
-    # 成熟期
-    MATURE_COST_CHANGE_RANGE: tuple = (-0.20, 0.20)  # -20% ~ +20% 消耗稳定
-    MATURE_COST_MIN: float = 200  # 最低消耗门槛
-
-    # 衰退期
-    DECAY_COST_CHANGE_MAX: float = -0.30  # -30% 消耗下降
-    DECAY_CONSECUTIVE_HOURS: int = 3  # 连续3天才判定衰退（防抖动）
-
-    # CTR 最佳区间
-    CTR_GOLDEN_RANGE: tuple = (0.02, 0.05)  # 2-5% 是黄金区间
-    CTR_HIGH_RISK: float = 0.06  # > 6% 可能有刷量风险
+    # 时间节点
+    COLD_START_HOURS: int = 24   # 冷启动期（小时）
+    VERIFY_HOURS: int = 72        # 验证期（小时）
+    SUSTAINED_DAYS: int = 7       # 持续盈利判定天数
 
 
-class CampaignThresholds:
+class CostThresholds:
     """
-    广告单元（Campaign）生命周期阈值
+    成本相关的阈值配置
 
-    核心发现:
-    - 60%+ 的 campaign 在24h内死亡
-    - 首日消耗 >= 200元 存活率更高
-    - 成本 < 10元反而存活率高（可能是测试素材）
+    注意: 成本本身不是判断标准，需结合ROI
     """
 
-    # 冷启动期
-    COLD_START_DURATION_HOURS: int = 24
-    COST_CRITICAL: float = 50   # < 50元 死亡率高
-    COST_HEALTHY: float = 200   # >= 200元 存活率更高
-
-    # 稳定投放期
-    STABLE_COST_CHANGE_RANGE: tuple = (-0.30, 0.30)
-
-    # 衰退期
-    DECAY_COST_DROP_MIN: float = 0.30  # 消耗下降30%+
-    DECAY_CONSECUTIVE_HOURS: int = 12  # 连续12小时
-
-    # 关停期
-    SHUTDOWN_COST_PER_HOUR_MAX: float = 1.0  # 每小时<1元
-    SHUTDOWN_DURATION_MIN: int = 48  # 持续48h以上
+    # 首日成本临界值
+    COST_CRITICAL: float = 50      # < 50元 成本极低
+    COST_LOW: float = 100          # < 100元 低成本
+    COST_MEDIUM: float = 200       # >= 200元 中等成本
+    COST_HIGH: float = 500         # >= 500元 高成本
 
 
-class MaterialThresholds:
+class RevenueThresholds:
     """
-    素材生命周期阈值
+    收入相关的阈值配置
 
-    注意: 当前数据中没有素材ID，此阈值基于行业经验
+    收入 = d0_order_amt + d0_ad_amt
     """
 
-    FRESH_DAYS: int = 3           # 新鲜期：投放3天内
-    GOLDEN_CTR_DROP_MAX: float = 0.20  # 黄金期：CTR下降<20%
-    FATIGUE_CTR_DROP_MIN: float = 0.40  # 疲劳期：CTR下降>40%
-    FATIGUE_FREQUENCY: int = 50  # 疲劳期：展示频次>50
+    # 最小收入标准
+    REVENUE_ZERO: float = 0       # 无收入
+    REVENUE_MINIMAL: float = 1    # 极小收入
+    REVENUE_SUSTAINED: float = 10  # 持续收入门槛
+
+    # 收入构成
+    ORDER_RATIO_MIN: float = 0.90  # 盈利Campaign订单收入占比 > 90%
 
 
 # =============================================================================
@@ -131,244 +112,283 @@ class DetectionResult:
 
 
 # =============================================================================
-# 商品生命周期检测器
-# =============================================================================
-
-class ProductLifecycleDetector:
-    """
-    商品（短剧）生命周期检测器
-
-    使用数据验证的阈值进行判定
-    """
-
-    def __init__(self, thresholds: ProductThresholds | None = None):
-        self.t = thresholds or ProductThresholds()
-
-    def detect(
-        self,
-        duration_hours: float,
-        cost_first_24h: float,
-        cost_last_24h: float,
-        cost_change_pct: float,
-        ctr_first_24h: float | None = None,
-        total_pays: int = 0,
-    ) -> DetectionResult:
-        """
-        检测商品生命周期阶段
-
-        Args:
-            duration_hours: 投放时长（小时）
-            cost_first_24h: 首日消耗
-            cost_last_24h: 最后24小时消耗
-            cost_change_pct: 消耗变化百分比 (如 0.20 = +20%)
-            ctr_first_24h: 首日CTR (可选)
-            total_pays: 总付费数
-        """
-
-        # ========== 冷启动失败 ==========
-        if duration_hours <= self.t.COLD_START_DURATION_HOURS:
-            if cost_first_24h < self.t.COST_CRITICAL:
-                return DetectionResult(
-                    stage=Stage.PRODUCT_COLD_START,
-                    confidence=0.9,
-                    reason=f"冷启动失败: 投放{duration_hours:.0f}h, 首日消耗{cost_first_24h:.1f}元 < {self.t.COST_CRITICAL}元",
-                    metrics={
-                        "duration_hours": duration_hours,
-                        "cost_first_24h": cost_first_24h,
-                        "cold_start_rate": 0.32  # 32% 冷启动率
-                    }
-                )
-
-        # ========== 成长期 ==========
-        if cost_change_pct >= self.t.GROWTH_COST_CHANGE_MIN and duration_hours > 24:
-            return DetectionResult(
-                stage=Stage.PRODUCT_GROWTH,
-                confidence=0.85,
-                reason=f"成长期: 消耗增长{cost_change_pct*100:.1f}% > {self.t.GROWTH_COST_CHANGE_MIN*100:.0f}%",
-                metrics={
-                    "cost_change_pct": cost_change_pct,
-                    "duration_hours": duration_hours
-                }
-            )
-
-        # ========== 衰退期 ==========
-        if cost_change_pct < self.t.DECAY_COST_CHANGE_MAX:
-            return DetectionResult(
-                stage=Stage.PRODUCT_DECLINE,
-                confidence=0.90,
-                reason=f"衰退期: 消耗下降{abs(cost_change_pct)*100:.1f}% < {abs(self.t.DECAY_COST_CHANGE_MAX)*100:.0f}%",
-                metrics={
-                    "cost_change_pct": cost_change_pct,
-                    "total_pays": total_pays
-                }
-            )
-
-        # ========== 成熟期 ==========
-        if (
-            self.t.MATURE_COST_CHANGE_RANGE[0] < cost_change_pct < self.t.MATURE_COST_CHANGE_RANGE[1]
-            and cost_first_24h >= self.t.MATURE_COST_MIN
-        ):
-            return DetectionResult(
-                stage=Stage.PRODUCT_MATURE,
-                confidence=0.80,
-                reason=f"成熟期: 消耗稳定({cost_change_pct*100:.1f}%), 首日消耗{cost_first_24h:.1f}元",
-                metrics={
-                    "cost_change_pct": cost_change_pct,
-                    "cost_first_24h": cost_first_24h
-                }
-            )
-
-        # ========== 引入期（默认）==========
-        return DetectionResult(
-            stage=Stage.PRODUCT_INTRODUCING,
-            confidence=0.60,
-            reason=f"引入期: duration={duration_hours:.0f}h, 首日消耗={cost_first_24h:.1f}元",
-            metrics={
-                "duration_hours": duration_hours,
-                "cost_first_24h": cost_first_24h
-            }
-        )
-
-    def get_survival_probability(self, cost_first_24h: float) -> float:
-        """
-        根据首日消耗预测存活概率
-
-        基于数据分析:
-        - cost < 50: 冷启动率 32% -> 存活率 68%
-        - cost >= 500: 冷启动率 < 5% -> 存活率 > 95%
-        """
-        if cost_first_24h >= 500:
-            return 0.95
-        elif cost_first_24h >= 200:
-            return 0.85
-        elif cost_first_24h >= 100:
-            return 0.72
-        elif cost_first_24h >= 50:
-            return 0.68
-        else:
-            return 0.68  # < 50 和 50-100 差不多
-
-
-# =============================================================================
-# 广告单元（Campaign）生命周期检测器
+# Campaign 生命周期检测器（基于ROI）
 # =============================================================================
 
 class CampaignLifecycleDetector:
     """
     广告单元（Campaign）生命周期检测器
 
-    核心发现:
-    - 60%+ 的 campaign 在24h内死亡
-    - 首日消耗 >= 200元 存活率更高
+    基于ROI的判定逻辑:
+
+    阶段判定顺序:
+    1. CAMPAIGN_COLD_DEAD: 收入=0 或 ROI始终极低
+    2. CAMPAIGN_COLD_START: 前24h ROI < 10%
+    3. CAMPAIGN_VERIFY: 24-72h ROI在10-40%区间
+    4. CAMPAIGN_GROWTH: 72h后ROI > 40% 且增长
+    5. CAMPAIGN_SUSTAINED: ROI > 40% 超过7天
+    6. CAMPAIGN_DECLINE: ROI从高点下降 > 50%
+    7. CAMPAIGN_SHUTDOWN: ROI < 10% 持续72h+
     """
 
-    def __init__(self, thresholds: CampaignThresholds | None = None):
-        self.t = thresholds or CampaignThresholds()
+    def __init__(
+        self,
+        roi_thresholds: ROIThresholds | None = None,
+        cost_thresholds: CostThresholds | None = None,
+        revenue_thresholds: RevenueThresholds | None = None
+    ):
+        self.roi = roi_thresholds or ROIThresholds()
+        self.cost = cost_thresholds or CostThresholds()
+        self.revenue = revenue_thresholds or RevenueThresholds()
 
     def detect(
         self,
         duration_hours: float,
-        cost_first_24h: float,
-        cost_last_24h: float,
-        cost_change_pct: float,
-        cost_per_hour: float | None = None,
-        ctr_first_24h: float | None = None,
-        total_pays: int = 0,
+        revenue: float,
+        cost: float,
+        revenue_0_24h: float = 0,
+        cost_0_24h: float = 0,
+        revenue_24_72h: float = 0,
+        cost_24_72h: float = 0,
+        revenue_72plus: float = 0,
+        cost_72plus: float = 0,
+        order_amt: float = 0,
+        ad_amt: float = 0,
     ) -> DetectionResult:
         """
         检测广告单元生命周期阶段
+
+        Args:
+            duration_hours: 投放时长（小时）
+            revenue: 总收入 (d0_order_amt + d0_ad_amt)
+            cost: 总成本
+            revenue_0_24h: 前24小时收入
+            cost_0_24h: 前24小时成本
+            revenue_24_72h: 24-72小时收入
+            cost_24_72h: 24-72小时成本
+            revenue_72plus: 72小时后收入
+            cost_72plus: 72小时后成本
+            order_amt: 订单收入
+            ad_amt: 广告收入
         """
 
-        # ========== 冷死亡 ==========
-        if duration_hours <= self.t.COLD_START_DURATION_HOURS:
-            if cost_first_24h < self.t.COST_CRITICAL:
-                return DetectionResult(
-                    stage=Stage.CAMPAIGN_COLD_DEAD,
-                    confidence=0.95,
-                    reason=f"冷死亡: 投放{duration_hours:.0f}h, 首日消耗{cost_first_24h:.1f}元 < {self.t.COST_CRITICAL}元",
-                    metrics={
-                        "duration_hours": duration_hours,
-                        "cost_first_24h": cost_first_24h,
-                        "death_rate": 0.70  # 70% 死亡率
-                    }
-                )
+        # 计算各阶段ROI
+        roi_0_24h = revenue_0_24h / cost_0_24h if cost_0_24h > 0 else 0
+        roi_24_72h = revenue_24_72h / cost_24_72h if cost_24_72h > 0 else 0
+        roi_72plus = revenue_72plus / cost_72plus if cost_72plus > 0 else 0
+        roi_total = revenue / cost if cost > 0 else 0
 
-        # ========== 冷启动（存活但短期）==========
-        if duration_hours <= self.t.COLD_START_DURATION_HOURS:
+        # ========== 1. 冷死亡: 从未产生收入 ==========
+        if revenue == 0:
             return DetectionResult(
-                stage=Stage.CAMPAIGN_COLD_START,
-                confidence=0.85,
-                reason=f"冷启动: 存活{duration_hours:.0f}h, 首日消耗{cost_first_24h:.1f}元",
+                stage=Stage.CAMPAIGN_COLD_DEAD,
+                confidence=0.95,
+                reason=f"冷死亡: 总收入=0，持续{duration_hours:.0f}h无收入",
                 metrics={
+                    "revenue": 0,
+                    "cost": cost,
                     "duration_hours": duration_hours,
-                    "cost_first_24h": cost_first_24h
+                    "death_probability": 0.95
                 }
             )
 
-        # ========== 关停期 ==========
-        if (
-            cost_per_hour is not None
-            and cost_per_hour < self.t.SHUTDOWN_COST_PER_HOUR_MAX
-            and duration_hours > self.t.SHUTDOWN_DURATION_MIN
-        ):
+        # ========== 2. 关停期: ROI < 10% 持续72h+ ==========
+        if duration_hours > 72 and roi_total < self.roi.ROI_VERY_LOW:
             return DetectionResult(
                 stage=Stage.CAMPAIGN_SHUTDOWN,
                 confidence=0.90,
-                reason=f"关停期: 每小时消耗{cost_per_hour:.2f}元 < {self.t.SHUTDOWN_COST_PER_HOUR_MAX}元, 持续{duration_hours:.0f}h",
+                reason=f"关停期: ROI={roi_total*100:.1f}% < 10%，持续{duration_hours:.0f}h",
                 metrics={
-                    "cost_per_hour": cost_per_hour,
-                    "duration_hours": duration_hours
+                    "roi": roi_total,
+                    "duration_hours": duration_hours,
+                    "survival_probability": 0.05
                 }
             )
 
-        # ========== 衰退期 ==========
-        if cost_change_pct < self.t.DECAY_COST_DROP_MIN:
+        # ========== 3. 冷启动: 前24h ROI < 10% ==========
+        if duration_hours <= 24 and roi_0_24h < self.roi.ROI_VERY_LOW:
             return DetectionResult(
-                stage=Stage.CAMPAIGN_DECAY,
+                stage=Stage.CAMPAIGN_COLD_START,
                 confidence=0.85,
-                reason=f"衰退期: 消耗下降{abs(cost_change_pct)*100:.1f}% < {abs(self.t.DECAY_COST_DROP_MIN)*100:.0f}%",
+                reason=f"冷启动: 前24h ROI={roi_0_24h*100:.1f}% < 10%，风险高",
                 metrics={
-                    "cost_change_pct": cost_change_pct
+                    "roi_0_24h": roi_0_24h,
+                    "revenue_0_24h": revenue_0_24h,
+                    "cost_0_24h": cost_0_24h,
+                    "failure_probability": 0.85
                 }
             )
 
-        # ========== 增长期 ==========
-        if cost_change_pct > self.t.GROWTH_COST_CHANGE_MIN if hasattr(self.t, 'GROWTH_COST_CHANGE_MIN') else cost_change_pct > 0.20:
+        # ========== 4. 衰退期: ROI从高点下降 > 50% ==========
+        if roi_0_24h > self.roi.PROFITABLE_ROI and roi_total < roi_0_24h * 0.5:
+            return DetectionResult(
+                stage=Stage.CAMPAIGN_DECLINE,
+                confidence=0.85,
+                reason=f"衰退期: ROI从{roi_0_24h*100:.1f}%下降到{roi_total*100:.1f}%，降幅>50%",
+                metrics={
+                    "roi_initial": roi_0_24h,
+                    "roi_current": roi_total,
+                    "decline_pct": (roi_0_24h - roi_total) / roi_0_24h if roi_0_24h > 0 else 0
+                }
+            )
+
+        # ========== 5. 持续盈利: ROI > 40% 超过7天 ==========
+        if duration_hours > 168 and roi_total > self.roi.PROFITABLE_ROI:
+            # 检查是否持续保持高ROI
+            if roi_72plus > self.roi.PROFITABLE_ROI:
+                return DetectionResult(
+                    stage=Stage.CAMPAIGN_SUSTAINED,
+                    confidence=0.90,
+                    reason=f"持续盈利: ROI={roi_total*100:.1f}% > 40%，持续超过7天",
+                    metrics={
+                        "roi": roi_total,
+                        "duration_hours": duration_hours,
+                        "profitability": "sustained"
+                    }
+                )
+
+        # ========== 6. 成长期: 72h后ROI > 40% ==========
+        if duration_hours > 72 and roi_total > self.roi.PROFITABLE_ROI:
             return DetectionResult(
                 stage=Stage.CAMPAIGN_GROWTH,
-                confidence=0.80,
-                reason=f"增长期: 消耗增长{cost_change_pct*100:.1f}%",
+                confidence=0.85,
+                reason=f"成长期: ROI={roi_total*100:.1f}% > 40%，进入盈利阶段",
                 metrics={
-                    "cost_change_pct": cost_change_pct
+                    "roi": roi_total,
+                    "duration_hours": duration_hours,
+                    "profitability": "profitable"
                 }
             )
 
-        # ========== 稳定投放期（默认）==========
+        # ========== 7. 验证期: 24-72h ROI在10-40% ==========
+        if 24 < duration_hours <= 72:
+            if self.roi.ROI_VERY_LOW < roi_total <= self.roi.PROFITABLE_ROI:
+                return DetectionResult(
+                    stage=Stage.CAMPAIGN_VERIFY,
+                    confidence=0.75,
+                    reason=f"验证期: ROI={roi_total*100:.1f}% (10%-40%)，关键决策点",
+                    metrics={
+                        "roi": roi_total,
+                        "duration_hours": duration_hours,
+                        "pass_probability": 0.30
+                    }
+                )
+
+        # ========== 8. 稳定期（默认）: ROI相对稳定 ==========
         return DetectionResult(
-            stage=Stage.CAMPAIGN_STABLE,
-            confidence=0.75,
-            reason=f"稳定期: 消耗变化{cost_change_pct*100:.1f}%, 持续{duration_hours:.0f}h",
+            stage=Stage.CAMPAIGN_VERIFY,  # 归类为验证期
+            confidence=0.60,
+            reason=f"验证期: ROI={roi_total*100:.1f}%，持续观察中",
             metrics={
-                "cost_change_pct": cost_change_pct,
-                "duration_hours": duration_hours,
-                "total_pays": total_pays
+                "roi": roi_total,
+                "duration_hours": duration_hours
             }
         )
 
-    def get_survival_probability(self, cost_first_24h: float) -> float:
+    def get_profitability_probability(self, roi_0_24h: float, roi_72h: float | None = None) -> float:
         """
-        根据首日消耗预测存活概率
+        根据早期ROI预测盈利概率
+
+        基于数据分析:
+        - 前24h ROI < 10%: 85%最终不盈利
+        - 72h后 ROI > 40%: 92%最终盈利
         """
-        if cost_first_24h >= 200:
-            return 0.85
-        elif cost_first_24h >= 100:
-            return 0.72
-        elif cost_first_24h >= 50:
-            return 0.73
-        elif cost_first_24h >= 10:
-            return 0.27
+        if roi_0_24h > self.roi.PROFITABLE_ROI:
+            return 0.90  # 早期盈利，高置信度
+        elif roi_0_24h > self.roi.ROI_MEDIUM:
+            return 0.70
+        elif roi_0_24h > self.roi.ROI_VERY_LOW:
+            return 0.30
         else:
-            return 0.37  # 极低预算反而略高（可能是测试素材）
+            return 0.15  # 早期ROI极低
+
+
+# =============================================================================
+# 商品（ShortPlay）生命周期检测器
+# =============================================================================
+
+class ProductLifecycleDetector:
+    """
+    商品（短剧）生命周期检测器
+
+    商品维度关注整体盈利能力和持续时间
+    """
+
+    def __init__(
+        self,
+        roi_thresholds: ROIThresholds | None = None,
+        cost_thresholds: CostThresholds | None = None
+    ):
+        self.roi = roi_thresholds or ROIThresholds()
+        self.cost = cost_thresholds or CostThresholds()
+
+    def detect(
+        self,
+        total_revenue: float,
+        total_cost: float,
+        campaign_count: int,
+        duration_hours: float,
+        order_amt: float = 0,
+        ad_amt: float = 0,
+    ) -> DetectionResult:
+        """
+        检测商品生命周期阶段
+
+        Args:
+            total_revenue: 总收入
+            total_cost: 总成本
+            campaign_count: 关联的Campaign数量
+            duration_hours: 最大投放时长
+            order_amt: 订单收入
+            ad_amt: 广告收入
+        """
+
+        roi = total_revenue / total_cost if total_cost > 0 else 0
+        order_ratio = order_amt / total_revenue if total_revenue > 0 else 0
+
+        # ========== 无收入 ==========
+        if total_revenue == 0:
+            return DetectionResult(
+                stage=Stage.PRODUCT_DEAD,
+                confidence=0.95,
+                reason=f"无收入商品: 总收入=0，{campaign_count}个Campaign",
+                metrics={
+                    "total_revenue": 0,
+                    "campaign_count": campaign_count
+                }
+            )
+
+        # ========== 盈利商品 ==========
+        if roi > self.roi.PROFITABLE_ROI:
+            if duration_hours > 168:
+                reason = f"长期盈利商品: ROI={roi*100:.1f}% > 40%，持续{duration_hours:.0f}h"
+            else:
+                reason = f"盈利商品: ROI={roi*100:.1f}% > 40%"
+
+            return DetectionResult(
+                stage=Stage.PRODUCT_PROFITABLE,
+                confidence=0.85,
+                reason=reason,
+                metrics={
+                    "roi": roi,
+                    "total_revenue": total_revenue,
+                    "campaign_count": campaign_count,
+                    "order_ratio": order_ratio
+                }
+            )
+
+        # ========== 亏损商品 ==========
+        return DetectionResult(
+            stage=Stage.PRODUCT_LOSS,
+            confidence=0.80,
+            reason=f"亏损商品: ROI={roi*100:.1f}% <= 40%",
+            metrics={
+                "roi": roi,
+                "total_revenue": total_revenue,
+                "campaign_count": campaign_count,
+                "order_ratio": order_ratio
+            }
+        )
 
 
 # =============================================================================
@@ -382,8 +402,8 @@ class MaterialLifecycleDetector:
     注意: 当前数据中没有素材ID，此检测器基于行业经验设计
     """
 
-    def __init__(self, thresholds: MaterialThresholds | None = None):
-        self.t = thresholds or MaterialThresholds()
+    def __init__(self):
+        pass
 
     def detect(
         self,
@@ -394,14 +414,20 @@ class MaterialLifecycleDetector:
     ) -> DetectionResult:
         """
         检测素材生命周期阶段
+
+        Args:
+            days_since_launch: 上线天数
+            ctr_drop_rate: CTR下降率
+            impression_frequency: 展示频次
+            ctr: 当前CTR
         """
 
         # ========== 淘汰期 ==========
-        if ctr_drop_rate > self.t.FATIGUE_CTR_DROP_MIN or impression_frequency > self.t.FATIGUE_FREQUENCY:
+        if ctr_drop_rate > 0.40 or impression_frequency > 50:
             return DetectionResult(
                 stage=Stage.MATERIAL_ELIMINATED,
                 confidence=0.90,
-                reason=f"淘汰期: CTR下降{ctr_drop_rate*100:.1f}% 或频次{impression_frequency} > {self.t.FATIGUE_FREQUENCY}",
+                reason=f"淘汰期: CTR下降{ctr_drop_rate*100:.1f}% 或频次>{impression_frequency}",
                 metrics={
                     "ctr_drop_rate": ctr_drop_rate,
                     "impression_frequency": impression_frequency
@@ -409,28 +435,27 @@ class MaterialLifecycleDetector:
             )
 
         # ========== 疲劳期 ==========
-        if ctr_drop_rate > self.t.GOLDEN_CTR_DROP_MAX:
+        if ctr_drop_rate > 0.20:
             return DetectionResult(
                 stage=Stage.MATERIAL_FATIGUE,
                 confidence=0.80,
-                reason=f"疲劳期: CTR下降{ctr_drop_rate*100:.1f}% > {self.t.GOLDEN_CTR_DROP_MAX*100:.0f}%",
+                reason=f"疲劳期: CTR下降{ctr_drop_rate*100:.1f}% > 20%",
                 metrics={
                     "ctr_drop_rate": ctr_drop_rate
                 }
             )
 
         # ========== 黄金期 ==========
-        if ctr_drop_rate <= self.t.GOLDEN_CTR_DROP_MAX:
-            if ctr is not None and self.t.CTR_GOLDEN_RANGE[0] <= ctr <= self.t.CTR_GOLDEN_RANGE[1]:
-                return DetectionResult(
-                    stage=Stage.MATERIAL_GOLDEN,
-                    confidence=0.85,
-                    reason=f"黄金期: CTR {ctr*100:.1f}%, 下降{ctr_drop_rate*100:.1f}%",
-                    metrics={
-                        "ctr": ctr,
-                        "ctr_drop_rate": ctr_drop_rate
-                    }
-                )
+        if ctr is not None and 0.02 <= ctr <= 0.05:
+            return DetectionResult(
+                stage=Stage.MATERIAL_GOLDEN,
+                confidence=0.85,
+                reason=f"黄金期: CTR {ctr*100:.1f}% (2-5%)",
+                metrics={
+                    "ctr": ctr,
+                    "ctr_drop_rate": ctr_drop_rate
+                }
+            )
 
         # ========== 新鲜期（默认）==========
         return DetectionResult(
@@ -460,29 +485,39 @@ class LifecycleDetector:
         self.campaign_detector = CampaignLifecycleDetector()
         self.material_detector = MaterialLifecycleDetector()
 
-    async def detect_product(
+    async def detect_campaign(
         self,
-        product_id: str,
+        campaign_id: str,
         duration_hours: float,
-        cost_first_24h: float,
-        cost_last_24h: float,
-        cost_change_pct: float,
-        ctr_first_24h: float | None = None,
-        total_pays: int = 0,
+        revenue: float,
+        cost: float,
+        revenue_0_24h: float = 0,
+        cost_0_24h: float = 0,
+        revenue_24_72h: float = 0,
+        cost_24_72h: float = 0,
+        revenue_72plus: float = 0,
+        cost_72plus: float = 0,
+        order_amt: float = 0,
+        ad_amt: float = 0,
     ) -> LifecycleRecord:
-        """检测商品生命周期"""
-        result = self.product_detector.detect(
+        """检测广告单元生命周期"""
+        result = self.campaign_detector.detect(
             duration_hours=duration_hours,
-            cost_first_24h=cost_first_24h,
-            cost_last_24h=cost_last_24h,
-            cost_change_pct=cost_change_pct,
-            ctr_first_24h=ctr_first_24h,
-            total_pays=total_pays,
+            revenue=revenue,
+            cost=cost,
+            revenue_0_24h=revenue_0_24h,
+            cost_0_24h=cost_0_24h,
+            revenue_24_72h=revenue_24_72h,
+            cost_24_72h=cost_24_72h,
+            revenue_72plus=revenue_72plus,
+            cost_72plus=cost_72plus,
+            order_amt=order_amt,
+            ad_amt=ad_amt,
         )
 
         return LifecycleRecord(
-            dimension=Dimension.PRODUCT,
-            entity_id=product_id,
+            dimension=Dimension.CAMPAIGN,
+            entity_id=campaign_id,
             current_stage=result.stage,
             stage_entered_at=datetime.utcnow(),
             metrics_snapshot=result.metrics,
@@ -490,31 +525,29 @@ class LifecycleDetector:
             detection_reason=result.reason,
         )
 
-    async def detect_campaign(
+    async def detect_product(
         self,
-        campaign_id: str,
+        product_id: str,
+        total_revenue: float,
+        total_cost: float,
+        campaign_count: int,
         duration_hours: float,
-        cost_first_24h: float,
-        cost_last_24h: float,
-        cost_change_pct: float,
-        cost_per_hour: float | None = None,
-        ctr_first_24h: float | None = None,
-        total_pays: int = 0,
+        order_amt: float = 0,
+        ad_amt: float = 0,
     ) -> LifecycleRecord:
-        """检测广告单元（campaign）生命周期"""
-        result = self.campaign_detector.detect(
+        """检测商品生命周期"""
+        result = self.product_detector.detect(
+            total_revenue=total_revenue,
+            total_cost=total_cost,
+            campaign_count=campaign_count,
             duration_hours=duration_hours,
-            cost_first_24h=cost_first_24h,
-            cost_last_24h=cost_last_24h,
-            cost_change_pct=cost_change_pct,
-            cost_per_hour=cost_per_hour,
-            ctr_first_24h=ctr_first_24h,
-            total_pays=total_pays,
+            order_amt=order_amt,
+            ad_amt=ad_amt,
         )
 
         return LifecycleRecord(
-            dimension=Dimension.CAMPAIGN,
-            entity_id=campaign_id,
+            dimension=Dimension.PRODUCT,
+            entity_id=product_id,
             current_stage=result.stage,
             stage_entered_at=datetime.utcnow(),
             metrics_snapshot=result.metrics,

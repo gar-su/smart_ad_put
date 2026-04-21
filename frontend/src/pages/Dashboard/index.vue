@@ -2,7 +2,7 @@
   <div class="dashboard">
     <!-- 概览卡片 -->
     <el-row :gutter="20">
-      <el-col :span="6">
+      <el-col :span="5">
         <el-card shadow="hover" class="stat-card">
           <div class="stat-icon" style="background: #409eff">
             <el-icon><Goods /></el-icon>
@@ -13,7 +13,7 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="5">
         <el-card shadow="hover" class="stat-card">
           <div class="stat-icon" style="background: #67c23a">
             <el-icon><Promotion /></el-icon>
@@ -24,7 +24,7 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="5">
         <el-card shadow="hover" class="stat-card">
           <div class="stat-icon" style="background: #e6a23c">
             <el-icon><Clock /></el-icon>
@@ -35,14 +35,25 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="5">
         <el-card shadow="hover" class="stat-card">
           <div class="stat-icon" style="background: #f56c6c">
             <el-icon><Cpu /></el-icon>
           </div>
           <div class="stat-content">
+            <div class="stat-value">{{ stats.profitabilityRate || 0 }}%</div>
+            <div class="stat-label">盈利率</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="4">
+        <el-card shadow="hover" class="stat-card">
+          <div class="stat-icon" style="background: #909399">
+            <el-icon><TrendCharts /></el-icon>
+          </div>
+          <div class="stat-content">
             <div class="stat-value">{{ stats.automationRate || 0 }}%</div>
-            <div class="stat-label">自动化渗透率</div>
+            <div class="stat-label">自动化率</div>
           </div>
         </el-card>
       </el-col>
@@ -53,15 +64,27 @@
       <el-col :span="12">
         <el-card shadow="hover">
           <template #header>
-            <span>生命周期分布</span>
+            <span>生命周期分布（基于ROI）</span>
             <el-radio-group v-model="lifecycleDimension" size="small" style="float: right">
-              <el-radio-button label="product">商品</el-radio-button>
               <el-radio-button label="campaign">广告单元</el-radio-button>
+              <el-radio-button label="product">商品</el-radio-button>
             </el-radio-group>
           </template>
           <div ref="lifecycleChart" class="chart-container"></div>
         </el-card>
       </el-col>
+      <el-col :span="12">
+        <el-card shadow="hover">
+          <template #header>
+            <span>ROI分布</span>
+          </template>
+          <div ref="roiChart" class="chart-container"></div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- 决策统计 -->
+    <el-row :gutter="20" style="margin-top: 20px">
       <el-col :span="12">
         <el-card shadow="hover">
           <template #header>
@@ -73,16 +96,12 @@
           <div ref="decisionChart" class="chart-container"></div>
         </el-card>
       </el-col>
-    </el-row>
-
-    <!-- 基建效率趋势 -->
-    <el-row :gutter="20" style="margin-top: 20px">
-      <el-col :span="24">
+      <el-col :span="12">
         <el-card shadow="hover">
           <template #header>
             <span>基建效率趋势（最近7天）</span>
           </template>
-          <div ref="efficiencyChart" class="chart-container-wide"></div>
+          <div ref="efficiencyChart" class="chart-container"></div>
         </el-card>
       </el-col>
     </el-row>
@@ -92,12 +111,13 @@
       <el-col :span="12">
         <el-card shadow="hover">
           <template #header>
-            <span>商品健康度告警</span>
+            <span>告警列表</span>
           </template>
           <el-table :data="alerts" size="small">
             <el-table-column prop="type" label="类型" width="80">
               <template #default="{ row }">
                 <el-tag v-if="row.type === 'warning'" type="warning" size="small">警告</el-tag>
+                <el-tag v-else-if="row.type === 'success'" type="success" size="small">正常</el-tag>
                 <el-tag v-else type="info" size="small">提示</el-tag>
               </template>
             </el-table-column>
@@ -146,54 +166,73 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, watch } from 'vue'
 import * as echarts from 'echarts'
-import { Goods, Promotion, Clock, Cpu } from '@element-plus/icons-vue'
+import { Goods, Promotion, Clock, Cpu, TrendCharts } from '@element-plus/icons-vue'
 
-const lifecycleDimension = ref('product')
+const lifecycleDimension = ref('campaign')
 const lifecycleChart = ref<HTMLElement>()
+const roiChart = ref<HTMLElement>()
 const decisionChart = ref<HTMLElement>()
 const efficiencyChart = ref<HTMLElement>()
 
+// 统计数据
 const stats = reactive({
-  totalProducts: 1944,
-  activeCampaigns: 109198,
-  todayDecisions: 0,
+  totalProducts: 1147,
+  activeCampaigns: 20000,
+  todayDecisions: 45,
+  profitabilityRate: 27,  // ROI > 40% 的Campaign占比
   automationRate: 68
 })
 
+// 告警列表（基于ROI）
 const alerts = ref([
-  { type: 'warning', message: '商品进入衰退期', count: 123 },
-  { type: 'info', message: '商品处于成长期', count: 45 },
-  { type: 'info', message: '商品处于成熟期', count: 12 }
+  { type: 'warning', message: 'Campaign进入衰退期(ROI下降>50%)', count: 123 },
+  { type: 'warning', message: 'Campaign冷启动失败(前24h ROI<10%)', count: 89 },
+  { type: 'success', message: 'Campaign进入成长期(ROI>40%)', count: 56 },
+  { type: 'info', message: 'Campaign处于验证期(ROI 10-40%)', count: 234 }
 ])
 
+// 策略统计
 const strategyStats = reactive({
-  totalRules: 6,
-  enabledRules: 5,
+  totalRules: 11,  // 更新为11个预置策略
+  enabledRules: 8,
   triggersToday: 12,
   decisionsThisWeek: 156,
   topActions: [
     { action: 'GROWTH_BURST', count: 20 },
+    { action: 'INCREASE_BUDGET', count: 15 },
     { action: 'REBUILD', count: 12 },
     { action: 'CLONE_AD', count: 8 },
+    { action: 'CHANNEL_EXPAND', count: 6 },
     { action: 'GRACEFUL_SHUTDOWN', count: 5 }
   ]
 })
 
+// 生命周期数据（基于ROI）
 const lifecycleData = reactive({
-  product: {
-    'product_cold_start': { value: 0.21, name: '冷启动' },
-    'product_growth': { value: 0.06, name: '成长期' },
-    'product_mature': { value: 0.07, name: '成熟期' },
-    'product_decline': { value: 0.66, name: '衰退期' }
-  },
+  // Campaign维度（基于ROI）
   campaign: {
-    'campaign_cold_dead': { value: 0.64, name: '冷死亡' },
-    'campaign_cold_start': { value: 0.05, name: '冷启动' },
-    'campaign_growth': { value: 0.09, name: '增长期' },
-    'campaign_stable': { value: 0.10, name: '稳定期' },
-    'campaign_decay': { value: 0.12, name: '衰退期' }
+    'campaign_cold_dead': { value: 0.243, name: '冷死亡(收入=0)' },
+    'campaign_cold_start': { value: 0.40, name: '冷启动(ROI<10%)' },
+    'campaign_verify': { value: 0.20, name: '验证期(ROI 10-40%)' },
+    'campaign_growth': { value: 0.08, name: '成长期(ROI>40%)' },
+    'campaign_sustained': { value: 0.05, name: '持续盈利(>7天)' },
+    'campaign_decline': { value: 0.027, name: '衰退期' }
+  },
+  // Product维度（基于ROI）
+  product: {
+    'product_profitable': { value: 0.377, name: '盈利(ROI>40%)' },
+    'product_loss': { value: 0.520, name: '亏损(ROI≤40%)' },
+    'product_dead': { value: 0.104, name: '无收入' }
   }
 })
+
+// ROI分布数据
+const roiDistributionData = [
+  { range: 'ROI>40%', count: 5463, color: '#67c23a' },
+  { range: 'ROI 20-40%', count: 3074, color: '#e6a23c' },
+  { range: 'ROI 0-20%', count: 6423, color: '#f56c6c' },
+  { range: 'ROI≤0', count: 5040, color: '#909399' }
+]
 
 function formatAction(action: string) {
   const map: Record<string, string> = {
@@ -203,7 +242,10 @@ function formatAction(action: string) {
     'BUDGET_SMOOTH': '预算平滑',
     'MATERIAL_PREPARE': '素材预热',
     'GRACEFUL_SHUTDOWN': '有序关停',
-    'REBUILD': '基建补充'
+    'REBUILD': '基建补充',
+    'INCREASE_BUDGET': '增加预算',
+    'REDUCE_BUDGET': '降低预算',
+    'MAINTAIN': '维持现状'
   }
   return map[action] || action
 }
@@ -214,10 +256,23 @@ function initLifecycleChart() {
   const chart = echarts.init(lifecycleChart.value)
   const data = lifecycleData[lifecycleDimension.value as keyof typeof lifecycleData]
 
+  // 颜色映射
+  const colorMap: Record<string, string> = {
+    '冷死亡(收入=0)': '#909399',
+    '冷启动(ROI<10%)': '#f56c6c',
+    '验证期(ROI 10-40%)': '#e6a23c',
+    '成长期(ROI>40%)': '#67c23a',
+    '持续盈利(>7天)': '#409eff',
+    '衰退期': '#ff6600',
+    '盈利(ROI>40%)': '#67c23a',
+    '亏损(ROI≤40%)': '#e6a23c',
+    '无收入': '#909399'
+  }
+
   const option = {
     tooltip: {
       trigger: 'item',
-      formatter: '{b}: {c} ({d}%)'
+      formatter: '{b}: {c}% ({d}%)'
     },
     legend: {
       orient: 'vertical',
@@ -240,11 +295,47 @@ function initLifecycleChart() {
         },
         data: Object.entries(data).map(([key, val]) => ({
           name: val.name,
-          value: (val.value * 100).toFixed(1)
+          value: (val.value * 100).toFixed(1),
+          itemStyle: { color: colorMap[val.name] }
         }))
       }
-    ],
-    color: ['#909399', '#67c23a', '#e6a23c', '#f56c6c']
+    ]
+  }
+
+  chart.setOption(option)
+}
+
+function initROIChart() {
+  if (!roiChart.value) return
+
+  const chart = echarts.init(roiChart.value)
+
+  const option = {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: '{b}: {c} 个Campaign'
+    },
+    xAxis: {
+      type: 'category',
+      data: roiDistributionData.map(d => d.range)
+    },
+    yAxis: { type: 'value', name: 'Campaign数' },
+    series: [
+      {
+        type: 'bar',
+        data: roiDistributionData.map(d => ({
+          value: d.count,
+          itemStyle: { color: d.color }
+        })),
+        itemStyle: { borderRadius: [4, 4, 0, 0] },
+        label: {
+          show: true,
+          position: 'top',
+          formatter: '{c}'
+        }
+      }
+    ]
   }
 
   chart.setOption(option)
@@ -283,8 +374,8 @@ function initEfficiencyChart() {
   const chart = echarts.init(efficiencyChart.value)
 
   const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-  const data1 = [12, 15, 18, 22, 19, 25, 28]
-  const data2 = [65, 68, 70, 72, 69, 75, 78]
+  const decisions = [12, 15, 18, 22, 19, 25, 28]
+  const automationRate = [65, 68, 70, 72, 69, 75, 78]
 
   const option = {
     tooltip: { trigger: 'axis' },
@@ -300,14 +391,14 @@ function initEfficiencyChart() {
       {
         name: '决策数',
         type: 'bar',
-        data: data1,
+        data: decisions,
         itemStyle: { color: '#409eff' }
       },
       {
         name: '自动化渗透率',
         type: 'line',
         yAxisIndex: 1,
-        data: data2,
+        data: automationRate,
         smooth: true,
         itemStyle: { color: '#67c23a' }
       }
@@ -323,6 +414,7 @@ watch(lifecycleDimension, () => {
 
 onMounted(() => {
   initLifecycleChart()
+  initROIChart()
   initDecisionChart()
   initEfficiencyChart()
 })
@@ -366,10 +458,6 @@ onMounted(() => {
   height: 280px;
 }
 
-.chart-container-wide {
-  height: 250px;
-}
-
 .strategy-summary {
   display: flex;
   flex-direction: column;
@@ -410,7 +498,7 @@ onMounted(() => {
 }
 
 .action-name {
-  width: 70px;
+  width: 80px;
   font-size: 13px;
 }
 

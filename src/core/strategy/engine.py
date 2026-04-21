@@ -2,6 +2,11 @@
 基建策略引擎
 
 基于生命周期阶段匹配策略规则，生成基建决策
+
+基于ROI的业务标准:
+- 盈利标准: ROI > 40%
+- 冷启动失败: 前24h ROI < 10%
+- 关键决策点: 72小时
 """
 
 from datetime import datetime, timedelta
@@ -26,30 +31,29 @@ class TriggerStageMapper:
     def to_trigger_stage(lifecycle_stage: LifecycleStage) -> TriggerStage:
         """将生命周期阶段映射为触发阶段"""
         mapping = {
-            # 商品维度
-            LifecycleStage.PRODUCT_COLD_START: TriggerStage.PRODUCT_COLD_START,
-            LifecycleStage.PRODUCT_INTRODUCING: TriggerStage.PRODUCT_INTRODUCING,
-            LifecycleStage.PRODUCT_GROWTH: TriggerStage.PRODUCT_GROWTH,
-            LifecycleStage.PRODUCT_MATURE: TriggerStage.PRODUCT_MATURE,
-            LifecycleStage.PRODUCT_DECLINE: TriggerStage.PRODUCT_DECLINE,
             # Campaign维度
             LifecycleStage.CAMPAIGN_COLD_DEAD: TriggerStage.CAMPAIGN_COLD_DEAD,
             LifecycleStage.CAMPAIGN_COLD_START: TriggerStage.CAMPAIGN_COLD_START,
+            LifecycleStage.CAMPAIGN_VERIFY: TriggerStage.CAMPAIGN_VERIFY,
             LifecycleStage.CAMPAIGN_GROWTH: TriggerStage.CAMPAIGN_GROWTH,
-            LifecycleStage.CAMPAIGN_STABLE: TriggerStage.CAMPAIGN_STABLE,
-            LifecycleStage.CAMPAIGN_DECAY: TriggerStage.CAMPAIGN_DECAY,
+            LifecycleStage.CAMPAIGN_SUSTAINED: TriggerStage.CAMPAIGN_SUSTAINED,
+            LifecycleStage.CAMPAIGN_DECLINE: TriggerStage.CAMPAIGN_DECLINE,
             LifecycleStage.CAMPAIGN_SHUTDOWN: TriggerStage.CAMPAIGN_SHUTDOWN,
+            # Product维度
+            LifecycleStage.PRODUCT_PROFITABLE: TriggerStage.PRODUCT_PROFITABLE,
+            LifecycleStage.PRODUCT_LOSS: TriggerStage.PRODUCT_LOSS,
+            LifecycleStage.PRODUCT_DEAD: TriggerStage.PRODUCT_DEAD,
         }
-        return mapping.get(lifecycle_stage, TriggerStage.PRODUCT_INTRODUCING)
+        return mapping.get(lifecycle_stage, TriggerStage.CAMPAIGN_VERIFY)
 
     @staticmethod
     def get_dimension(stage: TriggerStage) -> Dimension:
         """获取阶段对应的维度"""
-        if stage.value.startswith("product_"):
-            return Dimension.PRODUCT
-        elif stage.value.startswith("campaign_"):
+        if stage.value.startswith("campaign_"):
             return Dimension.CAMPAIGN
-        return Dimension.PRODUCT
+        elif stage.value.startswith("product_"):
+            return Dimension.PRODUCT
+        return Dimension.CAMPAIGN
 
 
 class StrategyEngine:
@@ -169,7 +173,6 @@ class StrategyEngine:
         now = datetime.utcnow()
         current_time = now.strftime("%H:%M")
 
-        # 简单检查，实际需要更复杂的逻辑
         if rule.time_window_start <= current_time <= rule.time_window_end:
             return True
         return True  # 默认允许
@@ -254,29 +257,29 @@ class DecisionGenerator:
         if scale.type == "fixed":
             return int(scale.value)
         elif scale.type == "percentage":
-            # percentage 需要基于某种基数计算
-            return int(scale.value)  # 简化处理
+            return int(scale.value)
         elif scale.type == "dynamic":
-            # dynamic 可以基于置信度等调整
             return int(scale.value * match.confidence)
 
         return int(scale.value)
 
 
 # =============================================================================
-# 默认策略模板
+# 默认策略模板（基于ROI分析）
 # =============================================================================
 
 DEFAULT_STRATEGY_TEMPLATES = [
-    # 商品-冷启动失败 -> 饱和式攻击
+    # ========== Campaign 策略 ==========
+
+    # Campaign-冷死亡 -> 饱和式攻击（最多创建50条）
     StrategyRule(
-        id="product_cold_start_burst",
-        name="冷启动失败-饱和攻击",
-        description="商品冷启动失败时，自动饱和式攻击补充流量",
-        dimension=Dimension.PRODUCT,
-        trigger_stages=[TriggerStage.PRODUCT_COLD_START],
+        id="campaign_cold_dead_burst",
+        name="冷死亡-饱和攻击",
+        description="Campaign从未产生收入，使用饱和式攻击补充",
+        dimension=Dimension.CAMPAIGN,
+        trigger_stages=[TriggerStage.CAMPAIGN_COLD_DEAD],
         conditions=[
-            Condition(field="cost_first_24h", operator="<", value=50)
+            Condition(field="duration_hours", operator=">=", value=24)
         ],
         action=ActionType.GROWTH_BURST,
         scale=ScaleConfig(type="fixed", value=50, max_limit=100),
@@ -284,74 +287,138 @@ DEFAULT_STRATEGY_TEMPLATES = [
         cooldown_hours=24,
     ),
 
-    # 商品-衰退期 -> 基建补充
+    # Campaign-冷启动 -> 复制替换（前24h ROI低）
     StrategyRule(
-        id="product_decline_rebuild",
-        name="衰退期-基建补充",
-        description="商品进入衰退期时，自动启动新一轮基建",
-        dimension=Dimension.PRODUCT,
-        trigger_stages=[TriggerStage.PRODUCT_DECLINE],
+        id="campaign_cold_start_clone",
+        name="冷启动-复制替换",
+        description="Campaign前24h ROI < 10%，复制新广告测试",
+        dimension=Dimension.CAMPAIGN,
+        trigger_stages=[TriggerStage.CAMPAIGN_COLD_START],
+        action=ActionType.CLONE_AD,
+        scale=ScaleConfig(type="fixed", value=10, max_limit=20),
+        priority=15,
+        cooldown_hours=12,
+    ),
+
+    # Campaign-验证期 -> 素材预热（持续观察）
+    StrategyRule(
+        id="campaign_verify_prepare",
+        name="验证期-素材预热",
+        description="Campaign处于验证期(ROI 10-40%)，预热新素材",
+        dimension=Dimension.CAMPAIGN,
+        trigger_stages=[TriggerStage.CAMPAIGN_VERIFY],
+        action=ActionType.MATERIAL_PREPARE,
+        scale=ScaleConfig(type="fixed", value=5, max_limit=10),
+        priority=30,
+        cooldown_hours=48,
+    ),
+
+    # Campaign-成长期 -> 加预算（ROI > 40%）
+    StrategyRule(
+        id="campaign_growth_increase",
+        name="成长期-增加预算",
+        description="Campaign ROI > 40%进入成长期，增加预算扩大规模",
+        dimension=Dimension.CAMPAIGN,
+        trigger_stages=[TriggerStage.CAMPAIGN_GROWTH],
         conditions=[
-            Condition(field="total_pays", operator=">=", value=10)
+            Condition(field="roi", operator=">", value=0.4)
         ],
+        action=ActionType.INCREASE_BUDGET,
+        scale=ScaleConfig(type="percentage", value=20, max_limit=50),
+        priority=20,
+        cooldown_hours=72,
+    ),
+
+    # Campaign-持续盈利 -> 渠道扩张
+    StrategyRule(
+        id="campaign_sustained_expand",
+        name="持续盈利-渠道扩张",
+        description="Campaign持续盈利超过7天，横向扩张到其他渠道",
+        dimension=Dimension.CAMPAIGN,
+        trigger_stages=[TriggerStage.CAMPAIGN_SUSTAINED],
+        action=ActionType.CHANNEL_EXPAND,
+        scale=ScaleConfig(type="fixed", value=20, max_limit=30),
+        priority=25,
+        cooldown_hours=168,
+    ),
+
+    # Campaign-衰退期 -> 有序关停
+    StrategyRule(
+        id="campaign_decline_shutdown",
+        name="衰退期-有序关停",
+        description="Campaign ROI下降超过50%，准备有序关停",
+        dimension=Dimension.CAMPAIGN,
+        trigger_stages=[TriggerStage.CAMPAIGN_DECLINE],
+        action=ActionType.GRACEFUL_SHUTDOWN,
+        scale=ScaleConfig(type="fixed", value=1, max_limit=5),
+        priority=15,
+        cooldown_hours=24,
+    ),
+
+    # Campaign-衰退期 -> 基建补充
+    StrategyRule(
+        id="campaign_decline_rebuild",
+        name="衰退期-基建补充",
+        description="Campaign进入衰退期，启动新一轮基建",
+        dimension=Dimension.CAMPAIGN,
+        trigger_stages=[TriggerStage.CAMPAIGN_DECLINE],
         action=ActionType.REBUILD,
         scale=ScaleConfig(type="fixed", value=30, max_limit=50),
         priority=20,
         cooldown_hours=72,
     ),
 
-    # 商品-成长期 -> 渠道扩张
+    # Campaign-关停期 -> 完全关停
     StrategyRule(
-        id="product_growth_expand",
-        name="成长期-渠道扩张",
-        description="商品进入成长期时，横向扩张到其他渠道",
-        dimension=Dimension.PRODUCT,
-        trigger_stages=[TriggerStage.PRODUCT_GROWTH],
-        action=ActionType.CHANNEL_EXPAND,
-        scale=ScaleConfig(type="fixed", value=20, max_limit=30),
-        priority=30,
-        cooldown_hours=48,
-    ),
-
-    # Campaign-冷死亡 -> 复制替换
-    StrategyRule(
-        id="campaign_cold_dead_clone",
-        name="冷死亡-复制替换",
-        description="Campaign冷启动死亡时，自动复制新广告替换",
-        dimension=Dimension.CAMPAIGN,
-        trigger_stages=[TriggerStage.CAMPAIGN_COLD_DEAD],
-        action=ActionType.CLONE_AD,
-        scale=ScaleConfig(type="fixed", value=5, max_limit=10),
-        priority=15,
-        cooldown_hours=12,
-    ),
-
-    # Campaign-衰退期 -> 有序关停
-    StrategyRule(
-        id="campaign_decay_shutdown",
-        name="衰退期-有序关停",
-        description="Campaign进入衰退期时，有序关停并准备替代",
-        dimension=Dimension.CAMPAIGN,
-        trigger_stages=[TriggerStage.CAMPAIGN_DECAY],
-        conditions=[
-            Condition(field="cost_change_pct", operator="<", value=-0.5)
-        ],
-        action=ActionType.GRACEFUL_SHUTDOWN,
-        scale=ScaleConfig(type="fixed", value=1, max_limit=5),
-        priority=25,
-        cooldown_hours=24,
-    ),
-
-    # Campaign-关停期 -> 素材预热
-    StrategyRule(
-        id="campaign_shutdown_prepare",
-        name="关停期-素材预热",
-        description="Campaign关停前，预热新素材准备接替",
+        id="campaign_shutdown_stop",
+        name="关停期-停止投放",
+        description="Campaign ROI < 10%持续72h+，关停并释放预算",
         dimension=Dimension.CAMPAIGN,
         trigger_stages=[TriggerStage.CAMPAIGN_SHUTDOWN],
-        action=ActionType.MATERIAL_PREPARE,
-        scale=ScaleConfig(type="fixed", value=3, max_limit=10),
-        priority=40,
-        cooldown_hours=48,
+        action=ActionType.GRACEFUL_SHUTDOWN,
+        scale=ScaleConfig(type="fixed", value=1, max_limit=1),
+        priority=5,
+        cooldown_hours=0,
+    ),
+
+    # ========== Product 策略 ==========
+
+    # Product-盈利 -> 渠道扩张
+    StrategyRule(
+        id="product_profitable_expand",
+        name="盈利商品-扩张",
+        description="商品ROI > 40%，横向扩张到更多渠道",
+        dimension=Dimension.PRODUCT,
+        trigger_stages=[TriggerStage.PRODUCT_PROFITABLE],
+        action=ActionType.CHANNEL_EXPAND,
+        scale=ScaleConfig(type="fixed", value=20, max_limit=50),
+        priority=20,
+        cooldown_hours=168,
+    ),
+
+    # Product-亏损 -> 基建补充
+    StrategyRule(
+        id="product_loss_rebuild",
+        name="亏损商品-重建",
+        description="商品ROI <= 40%，使用新素材重新创建广告",
+        dimension=Dimension.PRODUCT,
+        trigger_stages=[TriggerStage.PRODUCT_LOSS],
+        action=ActionType.REBUILD,
+        scale=ScaleConfig(type="fixed", value=30, max_limit=50),
+        priority=30,
+        cooldown_hours=72,
+    ),
+
+    # Product-无收入 -> 放弃
+    StrategyRule(
+        id="product_dead_abandon",
+        name="无收入商品-放弃",
+        description="商品完全无收入，放弃并寻找替代品",
+        dimension=Dimension.PRODUCT,
+        trigger_stages=[TriggerStage.PRODUCT_DEAD],
+        action=ActionType.GRACEFUL_SHUTDOWN,
+        scale=ScaleConfig(type="fixed", value=1, max_limit=1),
+        priority=5,
+        cooldown_hours=0,
     ),
 ]

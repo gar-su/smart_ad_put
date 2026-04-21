@@ -1,5 +1,10 @@
 """
 策略管理 API
+
+基于ROI的业务标准:
+- 盈利标准: ROI > 40%
+- 冷启动失败: 前24h ROI < 10%
+- 关键决策点: 72小时
 """
 
 from fastapi import APIRouter, HTTPException
@@ -154,19 +159,20 @@ async def toggle_rule(rule_id: str, enabled: bool):
 @router.post("/match")
 async def match_rules(req: MatchRequest):
     """匹配策略规则"""
-    # 构建生命周期记录
+    # 生命周期阶段映射（基于ROI）
     stage_map = {
-        "product_cold_start": Stage.PRODUCT_COLD_START,
-        "product_introducing": Stage.PRODUCT_INTRODUCING,
-        "product_growth": Stage.PRODUCT_GROWTH,
-        "product_mature": Stage.PRODUCT_MATURE,
-        "product_decline": Stage.PRODUCT_DECLINE,
+        # Campaign维度
         "campaign_cold_dead": Stage.CAMPAIGN_COLD_DEAD,
         "campaign_cold_start": Stage.CAMPAIGN_COLD_START,
+        "campaign_verify": Stage.CAMPAIGN_VERIFY,
         "campaign_growth": Stage.CAMPAIGN_GROWTH,
-        "campaign_stable": Stage.CAMPAIGN_STABLE,
-        "campaign_decay": Stage.CAMPAIGN_DECAY,
+        "campaign_sustained": Stage.CAMPAIGN_SUSTAINED,
+        "campaign_decline": Stage.CAMPAIGN_DECLINE,
         "campaign_shutdown": Stage.CAMPAIGN_SHUTDOWN,
+        # Product维度
+        "product_profitable": Stage.PRODUCT_PROFITABLE,
+        "product_loss": Stage.PRODUCT_LOSS,
+        "product_dead": Stage.PRODUCT_DEAD,
     }
 
     dimension_map = {
@@ -175,9 +181,9 @@ async def match_rules(req: MatchRequest):
     }
 
     lifecycle_record = LifecycleRecord(
-        dimension=dimension_map.get(req.dimension, LifecycleDimension.PRODUCT),
+        dimension=dimension_map.get(req.dimension, LifecycleDimension.CAMPAIGN),
         entity_id=req.entity_id,
-        current_stage=stage_map.get(req.current_stage, Stage.PRODUCT_INTRODUCING),
+        current_stage=stage_map.get(req.current_stage, Stage.CAMPAIGN_VERIFY),
         stage_entered_at=datetime.utcnow(),
         metrics_snapshot=req.metrics,
         confidence=req.confidence,

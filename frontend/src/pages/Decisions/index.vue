@@ -24,11 +24,16 @@
         <el-table-column prop="target_id" label="目标ID" width="200" />
         <el-table-column prop="action" label="动作">
           <template #default="{ row }">
-            <el-tag v-if="row.action === 'GROWTH_BURST'" type="success">饱和式攻击</el-tag>
+            <el-tag v-if="row.action === 'GROWTH_BURST'" type="success">饱和攻击</el-tag>
             <el-tag v-else-if="row.action === 'CHANNEL_EXPAND'" type="success">渠道扩张</el-tag>
+            <el-tag v-else-if="row.action === 'CLONE_AD'" type="primary">复制广告</el-tag>
             <el-tag v-else-if="row.action === 'BUDGET_SMOOTH'" type="warning">预算平滑</el-tag>
+            <el-tag v-else-if="row.action === 'MATERIAL_PREPARE'" type="warning">素材预热</el-tag>
+            <el-tag v-else-if="row.action === 'INCREASE_BUDGET'" type="success">增加预算</el-tag>
+            <el-tag v-else-if="row.action === 'REDUCE_BUDGET'" type="warning">降低预算</el-tag>
+            <el-tag v-else-if="row.action === 'MAINTAIN'" type="info">维持现状</el-tag>
             <el-tag v-else-if="row.action === 'GRACEFUL_SHUTDOWN'" type="danger">有序关停</el-tag>
-            <el-tag v-else-if="row.action === 'REBUILD'" type="warning">基建补充</el-tag>
+            <el-tag v-else-if="row.action === 'REBUILD'" type="danger">基建补充</el-tag>
             <el-tag v-else>{{ row.action }}</el-tag>
           </template>
         </el-table-column>
