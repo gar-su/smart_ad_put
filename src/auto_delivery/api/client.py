@@ -28,14 +28,14 @@ class ApiClient:
 
     def post(self, path: str, json: dict) -> dict:
         url = f"{self.base_url}{path}"
-        with httpx.Client() as client:
+        with httpx.Client(timeout=30.0) as client:
             resp = client.post(url, json=json, headers=self._build_headers())
             resp.raise_for_status()
             return resp.json()
 
     def get(self, path: str, params: dict | None = None) -> dict:
         url = f"{self.base_url}{path}"
-        with httpx.Client() as client:
+        with httpx.Client(timeout=30.0) as client:
             resp = client.get(url, params=params, headers=self._build_headers())
             resp.raise_for_status()
             return resp.json()
