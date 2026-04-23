@@ -48,3 +48,4 @@ htmlcov/
 frontend/dist/
 frontend/.vite/
 dist/
+.worktrees/
