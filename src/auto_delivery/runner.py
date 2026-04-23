@@ -1,9 +1,11 @@
 import json
 from datetime import datetime
 from pathlib import Path
+from collections import defaultdict
 from src.auto_delivery.services.material_service import MaterialService
 from src.auto_delivery.services.binding_service import BindingService
 from src.auto_delivery.services.delivery_service import DeliveryService
+from src.auto_delivery.services.channel_package_service import ChannelPackageService
 
 
 class AutoDeliveryRunner:
@@ -16,6 +18,7 @@ class AutoDeliveryRunner:
         self.material_service = MaterialService()
         self.binding_service = BindingService()
         self.delivery_service = DeliveryService()
+        self.channel_package_service = ChannelPackageService()
 
         # Load credentials for created_by
         cred_path = credentials_path or (base / "config" / "credentials.json")
@@ -66,10 +69,54 @@ class AutoDeliveryRunner:
             results["errors"].append("Step2: 没有成功绑定的素材")
             return results
 
-        # Step 3: 创建投放任务
-        print("[Step3] 创建广告投放任务...")
-        video_name_map = {m.video_id: m.video_name for m in materials}
-        task_results = self.delivery_service.create_tasks(binding_results, video_name_map, self.created_by)
+        # Step 3: 创建投放任务（按语言分组）
+        print("[Step3] 创建广告投放任务（按语言分组）...")
+
+        # 按语言分组成功的绑定结果，同时记录 video_id -> video_name 映射
+        language_groups: dict[str, list] = defaultdict(list)
+        video_name_map: dict[str, str] = {}
+        material_language_map: dict[int, str] = {}  # material_id -> language_code
+
+        for m in materials:
+            video_name_map[m.video_id] = m.video_name
+            material_language_map[int(m.material_emp_id)] = m.language_code
+
+        # 构建 video_id -> language_code 的映射（从 binding_results）
+        # 这里我们假设同一个 video_id 的素材语言相同
+        video_language_map: dict[str, str] = {}
+        for m in materials:
+            video_language_map[m.video_id] = m.language_code
+
+        # 为每种语言获取或创建账户包
+        languages_used = set(m.language_code for m in materials)
+        language_channel_map: dict[str, int] = {}
+
+        for lang_code in languages_used:
+            print(f"[Step3] 获取/创建语言 {lang_code} 的账户包...")
+            channel_package_id = self.channel_package_service.get_or_create_by_language(lang_code)
+            language_channel_map[lang_code] = channel_package_id
+            print(f"[Step3] 语言 {lang_code} -> channelPackageId {channel_package_id}")
+
+        # 按 video_id 分组创建任务
+        video_groups: dict[str, list] = defaultdict(list)
+        for r in success_bindings:
+            video_groups[r.video_id].append(r)
+
+        # 为每个 video_id 创建任务
+        task_results = []
+        for video_id, bindings in video_groups.items():
+            # 获取该视频对应的语言
+            lang_code = video_language_map.get(video_id, "en_US")
+            channel_package_id = language_channel_map.get(lang_code)
+
+            video_name = video_name_map.get(video_id, video_id)
+            material_ids = [r.material_id for r in bindings]
+
+            result = self.delivery_service.confirm_and_create(
+                video_name, video_id, material_ids, self.created_by, channel_package_id
+            )
+            task_results.append(result)
+
         success_tasks = [r for r in task_results if r.success]
         failed_tasks = [r for r in task_results if not r.success]
         results["step3_create_success"] = len(success_tasks)
@@ -84,6 +131,7 @@ class AutoDeliveryRunner:
         print(f"Step1: 找到 {results['step1_materials_found']} 个达标素材")
         print(f"Step2: 绑定成功 {results['step2_bind_success']} 个，失败 {results['step2_bind_failed']} 个")
         print(f"Step3: 创建成功 {results['step3_create_success']} 个，失败 {results['step3_create_failed']} 个")
+        print(f"语言分布: {dict(language_channel_map)}")
         if results["errors"]:
             print(f"错误: {results['errors']}")
 

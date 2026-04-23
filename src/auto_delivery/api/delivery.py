@@ -26,6 +26,7 @@ class DeliveryApi:
         short_play_name: str,
         short_play_id: str,
         created_by: str,
+        channel_package_id: int | None = None,
     ) -> dict:
         """3.2 创建投放任务"""
         from ..constants import FIXED_DELIVERY_TASK_PARAMS
@@ -58,4 +59,6 @@ class DeliveryApi:
             "createdBy": created_by,
             "updatedBy": created_by,
         }
+        if channel_package_id is not None:
+            params["channelPackageId"] = channel_package_id
         return self.client.post(self.CREATE_API_PATH, json=params)

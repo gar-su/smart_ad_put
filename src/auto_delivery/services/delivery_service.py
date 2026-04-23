@@ -30,6 +30,7 @@ class DeliveryService:
         video_id: str,
         material_ids: list[int],
         created_by: str,
+        channel_package_id: int | None = None,
     ) -> DeliveryTaskResult:
         """3.1 确认 + 3.2 创建任务"""
         confirm_resp = self.api.confirm(video_name, video_id)
@@ -44,7 +45,9 @@ class DeliveryService:
             )
 
         task_name = self.build_task_name(video_name, len(material_ids))
-        create_resp = self.api.create_task(task_name, video_name, video_id, created_by)
+        create_resp = self.api.create_task(
+            task_name, video_name, video_id, created_by, channel_package_id
+        )
 
         if create_resp.get("code") == 200:
             return DeliveryTaskResult(

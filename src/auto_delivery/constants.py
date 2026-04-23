@@ -18,6 +18,48 @@ LANGUAGE_MAP: dict[str, str] = {
     "繁体中文": "zh_TW",
 }
 
+# 语言代码到国家代码的映射（用于按语言分流到不同账户包）
+LANGUAGE_COUNTRY_MAP: dict[str, str] = {
+    "ko_KR": "KR",  # 韩语→韩国
+    "en_US": "US",  # 英语→美国
+    "ja_JP": "JP",  # 日语→日本
+    "th_TH": "TH",  # 泰语→泰国
+    "vi_VN": "VN",  # 越南语→越南
+    "ar_AE": "AE",  # 阿拉伯语→阿联酋
+    "de_DE": "DE",  # 德语→德国
+    "es_ES": "ES",  # 西班牙语→西班牙
+    "fr_FR": "FR",  # 法语→法国
+    "hi_IN": "IN",  # 印地语→印度
+    "id_ID": "ID",  # 印尼语→印尼
+    "it_IT": "IT",  # 意大利语→意大利
+    "ms_MY": "MY",  # 马来语→马来西亚
+    "pt_PT": "PT",  # 葡萄牙语→葡萄牙
+    "tr_TR": "TR",  # 土耳其语→土耳其
+    "zh_CN": "CN",  # 简体中文→中国
+    "zh_TW": "TW",  # 繁体中文→台湾
+}
+
+# 国家代码到国家名称的映射
+COUNTRY_NAME_MAP: dict[str, str] = {
+    "KR": "韩国",
+    "US": "美国",
+    "JP": "日本",
+    "TH": "泰国",
+    "VN": "越南",
+    "AE": "阿联酋",
+    "DE": "德国",
+    "ES": "西班牙",
+    "FR": "法国",
+    "IN": "印度",
+    "ID": "印度尼西亚",
+    "IT": "意大利",
+    "MY": "马来西亚",
+    "PT": "葡萄牙",
+    "TR": "土耳其",
+    "CN": "中国",
+    "TW": "台湾",
+}
+
 DEFAULT_MATERIAL_QUERY_PARAMS: dict = {
     "type": 1,
     "pageSize": 100,
@@ -73,7 +115,7 @@ FIXED_DELIVERY_TASK_PARAMS: dict = {
     "callToActionTypes": "WATCH_MORE",
     "deeplinkUrl": "",
     "creativeFeaturesSpec": "[\"inline_comment\",\"image_templates\",\"image_touchups\",\"video_auto_crop\",\"image_brightness_and_contrast\",\"enhance_cta\",\"text_optimizations\",\"audios\"]",
-    "channelPackageId": 6,
+    # channelPackageId is now set dynamically based on language
     "dailyBudget": "30.00",
     "appStore": "1",
 }
