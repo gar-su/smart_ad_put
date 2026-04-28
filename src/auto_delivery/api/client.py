@@ -2,13 +2,13 @@ import requests
 from pathlib import Path
 
 
+DEFAULT_CREDENTIALS_PATH = Path("/Users/gar/projects/auto_delivery/config/credentials.json")
+
+
 class ApiClient:
     def __init__(self, credentials_path: Path | None = None):
-        if credentials_path is None:
-            base = Path(__file__).resolve().parent.parent.parent.parent
-            credentials_path = base / "config" / "credentials.json"
-
-        with open(credentials_path) as f:
+        cred_path = credentials_path or DEFAULT_CREDENTIALS_PATH
+        with open(cred_path) as f:
             import json
             creds = json.load(f)
 

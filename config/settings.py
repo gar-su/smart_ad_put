@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # 决策日志
     DECISION_LOG_DIR: Path = BASE_DIR / "logs" / "decisions"
 
+    # credentials（复用 auto_delivery 的配置）
+    CREDENTIALS_PATH: Path = Path("/Users/gar/projects/auto_delivery/config/credentials.json")
+
     # API
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
