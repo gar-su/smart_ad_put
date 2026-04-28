@@ -10,13 +10,49 @@ from datetime import date, timedelta
 from typing import Optional
 
 from ..api.reporting import ReportingApi
+from ..api.binding import BindingApi
 
 
 class ReportingService:
     """拉取并聚合短剧日报数据"""
 
-    def __init__(self, api: ReportingApi | None = None):
+    def __init__(self, api: ReportingApi | None = None, binding_api: BindingApi | None = None):
         self.api = api or ReportingApi()
+        self._binding_api = binding_api or BindingApi()
+        self._short_play_cache: dict[tuple[str, str], tuple[str, str] | None] = {}
+
+    def resolve_short_play_id(
+        self,
+        video_name: str,
+        language_code: str,
+        video_id: str,
+    ) -> tuple[str, str] | tuple[None, None]:
+        """
+        根据报表的 video_id 解析 binding 系统的 shortPlayId
+
+        逻辑：binding API 按 (video_name, language_code) 模糊查找，
+        返回的 shortPlayLibraryId 与报表 video_id 匹配的那条即为正确结果。
+
+        Returns:
+            (shortPlayId, shortPlayName) 或 (None, None)
+        """
+        cache_key = (video_name, language_code)
+        if cache_key in self._short_play_cache:
+            return self._short_play_cache[cache_key]
+
+        resp = self._binding_api.query_video(video_name, language_code)
+        rows = resp.get("rows", [])
+        for row in rows:
+            library_id = str(row.get("shortPlayLibraryId", ""))
+            if library_id == str(video_id):
+                short_play_id = row.get("shortPlayId", "")
+                short_play_name = row.get("shortPlayName") or video_name
+                result = (short_play_id, short_play_name)
+                self._short_play_cache[cache_key] = result
+                return result
+
+        self._short_play_cache[cache_key] = None
+        return None, None
 
     def fetch_and_aggregate(
         self,
@@ -101,11 +137,22 @@ class ReportingService:
                     cost_72plus += cost
 
             duration_hours = len(day_entries) * 24
+            video_name = day_entries[0][1].get("videoName", "")
+            raw_language = day_entries[0][1].get("language", "")
+            lang_code = self._map_language(raw_language)
+
+            # 解析 shortPlayId
+            short_play_id, short_play_name = self.resolve_short_play_id(
+                video_name, lang_code, video_id
+            )
 
             aggregated.append({
                 "video_id": video_id,
-                "video_name": day_entries[0][1].get("videoName", ""),
-                "language": day_entries[0][1].get("language", ""),
+                "short_play_id": short_play_id,
+                "short_play_name": short_play_name or video_name,
+                "video_name": video_name,
+                "language": raw_language,
+                "language_code": lang_code,
                 "duration_hours": duration_hours,
                 "total_revenue": total_revenue,
                 "total_cost": total_cost,
@@ -135,6 +182,11 @@ class ReportingService:
     def _parse_cost(self, row: dict) -> float:
         """解析成本"""
         return self._parse_float(row.get("cost", 0))
+
+    def _map_language(self, raw: str) -> str:
+        """将原始语言名映射为语言代码"""
+        from ..constants import LANGUAGE_MAP
+        return LANGUAGE_MAP.get(raw, raw)
 
     def _parse_float(self, val) -> float:
         if isinstance(val, (int, float)):

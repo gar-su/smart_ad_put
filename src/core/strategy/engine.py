@@ -40,8 +40,9 @@ class TriggerStageMapper:
             LifecycleStage.CAMPAIGN_DECLINE: TriggerStage.CAMPAIGN_DECLINE,
             LifecycleStage.CAMPAIGN_SHUTDOWN: TriggerStage.CAMPAIGN_SHUTDOWN,
             # Product维度
-            LifecycleStage.PRODUCT_PROFITABLE: TriggerStage.PRODUCT_PROFITABLE,
-            LifecycleStage.PRODUCT_LOSS: TriggerStage.PRODUCT_LOSS,
+            LifecycleStage.PRODUCT_ENTRY: TriggerStage.PRODUCT_PROFITABLE,
+            LifecycleStage.PRODUCT_DECLINE: TriggerStage.PRODUCT_LOSS,
+            LifecycleStage.PRODUCT_EXIT: TriggerStage.PRODUCT_LOSS,
             LifecycleStage.PRODUCT_DEAD: TriggerStage.PRODUCT_DEAD,
         }
         return mapping.get(lifecycle_stage, TriggerStage.CAMPAIGN_VERIFY)
