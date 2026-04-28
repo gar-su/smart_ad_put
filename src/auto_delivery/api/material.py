@@ -9,12 +9,12 @@ class MaterialReportApi:
     def __init__(self, client: ApiClient | None = None):
         self.client = client or ApiClient()
 
-    def query_day(self, query_date: date) -> dict:
+    def query_day(self, query_date: date, page: int = 1) -> dict:
         """查询某一天的素材报表"""
         params = {
             "startDate": query_date.isoformat(),
             "endDate": query_date.isoformat(),
-            "pageNum": 1,
+            "pageNum": page,
             "pageSize": 100,
             "type": 1,
         }

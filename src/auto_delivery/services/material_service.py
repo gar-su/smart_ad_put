@@ -10,8 +10,8 @@ class MaterialService:
         self.api = api or MaterialReportApi()
 
     def _rate_over_100(self, item: dict) -> bool:
-        """判断综合达标率是否大于100"""
-        rate_str = item.get("comprehensiveMeetStandardRate", "0%")
+        """判断达标率是否大于100"""
+        rate_str = item.get("meetStandardRate", "0%")
         rate = float(rate_str.rstrip("%"))
         return rate > 100
 
@@ -22,7 +22,7 @@ class MaterialService:
         current_cost = float(item.get("cost", "0"))
         return current_cost > yesterday_cost
 
-    def _parse_material(self, item: dict, yesterday_cost: float | None = None) -> QualifiedMaterial | None:
+    def _parse_material(self, item: dict) -> QualifiedMaterial | None:
         """解析单条素材记录"""
         try:
             if not self._rate_over_100(item):
@@ -35,35 +35,45 @@ class MaterialService:
                 video_id=item["videoId"],
                 comprehensive_meet_standard_rate=float(item["comprehensiveMeetStandardRate"].rstrip("%")),
                 cost=float(item["cost"]),
-                cost_yesterday=yesterday_cost,
             )
         except (KeyError, ValueError):
             return None
 
-    def query_qualified_materials(self, days: int = 5) -> list[QualifiedMaterial]:
-        """查询最近N天达标素材"""
+    def query_qualified_materials(
+        self, days: int = 5, pages_per_day: int = 5, top_per_video: int = 5
+    ) -> list[QualifiedMaterial]:
+        """查询最近N天达标素材，按达标率排序，每剧取top_per_video个"""
         all_materials: list[QualifiedMaterial] = []
         today = date.today()
 
         for i in range(days):
             query_date = today - timedelta(days=i)
-            resp = self.api.query_day(query_date)
-            rows = resp.get("materialCostPage", {}).get("rows", [])
+            for page in range(1, pages_per_day + 1):
+                resp = self.api.query_day(query_date, page)
+                rows = resp.get("materialCostPage", {}).get("rows", [])
+                if not rows:
+                    break
+                for item in rows:
+                    material = self._parse_material(item)
+                    if material:
+                        all_materials.append(material)
 
-            yesterday_cost_map: dict[str, float] = {}
-            if i > 0:
-                yesterday_date = today - timedelta(days=i - 1)
-                yesterday_resp = self.api.query_day(yesterday_date)
-                yesterday_rows = yesterday_resp.get("materialCostPage", {}).get("rows", [])
-                for row in yesterday_rows:
-                    yesterday_cost_map[row["filename"]] = float(row.get("cost", "0"))
+        # 按video_id分组，每组按达标率降序排列，取前top_per_video个
+        video_groups: dict[str, list[QualifiedMaterial]] = {}
+        for m in all_materials:
+            if m.video_id not in video_groups:
+                video_groups[m.video_id] = []
+            video_groups[m.video_id].append(m)
 
-            for item in rows:
-                material = self._parse_material(item, yesterday_cost_map.get(item["filename"]))
-                if material and self._cost_increasing(item, yesterday_cost_map.get(item["filename"])):
-                    all_materials.append(material)
+        # 每组内按达标率降序排序，取前top_per_video个
+        result: list[QualifiedMaterial] = []
+        for video_id, materials in video_groups.items():
+            materials.sort(key=lambda m: m.comprehensive_meet_standard_rate, reverse=True)
+            result.extend(materials[:top_per_video])
 
-        return all_materials
+        # 整体按达标率降序排列
+        result.sort(key=lambda m: m.comprehensive_meet_standard_rate, reverse=True)
+        return result
 
     def save_to_file(self, materials: list[QualifiedMaterial], output_path: Path) -> None:
         """保存达标素材到文件"""

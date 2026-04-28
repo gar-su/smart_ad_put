@@ -171,43 +171,69 @@ async def trigger_automation(
     }
 
 
-@router.post("/decision/output")
-async def output_decision(
-    entity_id: str,
-    dimension: str,
-    stage: str,
-    action: str,
-    scale: int,
-    reason: str = "",
-):
-    """
-    输出基建决策到日志文件
+class DecisionOutputRequest(BaseModel):
+    """决策输出请求"""
+    entity_id: str
+    dimension: str
+    stage: str
+    action: str
+    scale: int
+    decision_type: str = "CREATE_AD"
+    channel_package_id: int | None = None
+    language_code: str | None = None
+    short_play_name: str | None = None
+    reason: str = ""
 
-    这是决策的最终输出点
+
+@router.post("/decision/output")
+async def output_decision(req: DecisionOutputRequest):
     """
+    输出基建决策到日志文件（供 auto_delivery_scheduled 读取执行）
+
+    格式与 auto_delivery_scheduled.models.Decision 对齐
+    """
+    decision_id = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{req.entity_id}"
+    now = datetime.utcnow()
+
+    payload = {"scale": req.scale}
+    if req.channel_package_id is not None:
+        payload["channel_package_id"] = req.channel_package_id
+    if req.language_code is not None:
+        payload["language_code"] = req.language_code
+    if req.short_play_name is not None:
+        payload["short_play_name"] = req.short_play_name
+
     decision = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "entity_id": entity_id,
-        "dimension": dimension,
-        "stage": stage,
-        "action": action,
-        "scale": scale,
-        "reason": reason,
+        "decision_id": decision_id,
+        "type": req.decision_type,
+        "dimension": req.dimension,
+        "target_id": req.entity_id,
+        "action": req.action,
+        "payload": payload,
+        "reason": req.reason,
+        "confidence": 1.0,
     }
 
-    # 输出到日志文件
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
-    log_dir = settings.DECISION_LOG_DIR / date_str
+    # 输出到聚合 JSON 文件（与 auto_delivery_scheduled 的 reader 格式对齐）
+    date_str = now.strftime("%Y-%m-%d")
+    time_str = now.strftime("%H%M")
+    log_dir = settings.DECISION_LOG_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    log_file = log_dir / "decisions.jsonl"
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(decision, ensure_ascii=False) + "\n")
+    # 文件名: decisions_YYYY-MM-DD_HH.json（如 09:00 生成 = decisions_2026-04-28_090000.json）
+    log_file = log_dir / f"decisions_{date_str}_{time_str}0000.json"
 
-    # 同时输出详细JSON
-    detail_file = log_dir / f"decision_{datetime.utcnow().strftime('%H%M%S')}.json"
-    with open(detail_file, "w", encoding="utf-8") as f:
-        json.dump(decision, f, ensure_ascii=False, indent=2)
+    if log_file.exists():
+        # 追加到已有文件
+        with open(log_file, encoding="utf-8") as f:
+            existing = json.load(f)
+    else:
+        existing = {"decisions": []}
+
+    existing["decisions"].append(decision)
+
+    with open(log_file, "w", encoding="utf-8") as f:
+        json.dump(existing, f, ensure_ascii=False, indent=2)
 
     return {
         "status": "output",

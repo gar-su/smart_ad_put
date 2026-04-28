@@ -92,7 +92,7 @@ FIXED_DELIVERY_TASK_PARAMS: dict = {
         "materialRepeatType": 2,
         "materialRepeatNum": 1,
         "adSetNum": 1,
-        "adMaterialNum": 30,
+        "adMaterialNum": 3,
         "materialCostType": 1,
         "rangeType": 2,
         "rangeSymbol": 1,
