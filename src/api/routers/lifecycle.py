@@ -143,7 +143,6 @@ async def detect_product_lifecycle(req: ProductDetectRequest):
     - growth: ROI > 40% 且趋势上升
     - decline: ROI持续下滑 > 30%
     - exit: ROI < 10% 持续5天
-    - dead: 无投放
     """
     result = product_detector.detect(
         total_revenue=req.total_revenue,
@@ -200,7 +199,6 @@ async def list_stages(dimension: str = Query(..., description="维度: product �
         {"value": "product_growth", "label": "成长期", "description": "ROI > 40% 且趋势上升"},
         {"value": "product_decline", "label": "衰退期", "description": "ROI持续下滑 > 30%"},
         {"value": "product_exit", "label": "退出期", "description": "ROI < 10% 持续5天"},
-        {"value": "product_dead", "label": "无投放", "description": "成本为0"},
     ]
 
     if dimension == "product":

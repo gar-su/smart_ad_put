@@ -39,6 +39,7 @@ class TriggerStage(str, Enum):
     """
 
     # Campaign维度
+    CAMPAIGN_OBSERVING = "campaign_observing"
     CAMPAIGN_COLD_DEAD = "campaign_cold_dead"
     CAMPAIGN_COLD_START = "campaign_cold_start"
     CAMPAIGN_VERIFY = "campaign_verify"
@@ -48,9 +49,15 @@ class TriggerStage(str, Enum):
     CAMPAIGN_SHUTDOWN = "campaign_shutdown"
 
     # Product维度
+    PRODUCT_OBSERVING = "product_observing"
     PRODUCT_PROFITABLE = "product_profitable"
     PRODUCT_LOSS = "product_loss"
-    PRODUCT_DEAD = "product_dead"
+
+    # Material维度（预留）
+    MATERIAL_FRESH = "material_fresh"
+    MATERIAL_GOLDEN = "material_golden"
+    MATERIAL_FATIGUE = "material_fatigue"
+    MATERIAL_ELIMINATED = "material_eliminated"
 
 
 class ActionType(str, Enum):
@@ -95,8 +102,8 @@ class ScaleConfig(BaseModel):
     max_limit: int = Field(default=100, description="最大限制")
 
 
-class StrategyRule(BaseModel):
-    """基建策略规则"""
+class Strategy(BaseModel):
+    """基建策略"""
     id: str
     name: str
     description: str = ""
@@ -105,15 +112,13 @@ class StrategyRule(BaseModel):
     dimension: Dimension
     trigger_stages: List[TriggerStage] = Field(description="触发的生命周期阶段")
     conditions: List[Condition] = Field(default_factory=list, description="额外条件")
-    confidence_min: float = Field(default=0.7, description="最小置信度")
 
     # 执行动作
     action: ActionType
     scale: ScaleConfig = Field(default_factory=lambda: ScaleConfig(type="fixed", value=10))
 
-    # 规则控制
+    # 策略控制
     enabled: bool = True
-    priority: int = Field(default=100, description="优先级，数字越小越高")
 
     # 时间控制
     cooldown_hours: int = Field(default=24, description="触发冷却时间(小时)")
@@ -126,7 +131,7 @@ class StrategyRule(BaseModel):
 
 class StrategyMatch(BaseModel):
     """策略匹配结果"""
-    rule: StrategyRule
+    strategy: Strategy
     entity_id: str
     entity_stage: TriggerStage
     confidence: float

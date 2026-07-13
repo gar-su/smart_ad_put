@@ -58,7 +58,6 @@ class Stage(str, Enum):
     PRODUCT_GROWTH = "product_growth"             # 成长：ROI > 40% 且趋势上升
     PRODUCT_DECLINE = "product_decline"           # 衰退：ROI持续下滑 > 30%
     PRODUCT_EXIT = "product_exit"                 # 退出：ROI < 10% 持续 5天
-    PRODUCT_DEAD = "product_dead"                 # 无投放：cost = 0
 
     # ========== 素材维度（暂无数据支撑，基于行业经验）==========
     MATERIAL_FRESH = "material_fresh"               # 新鲜期

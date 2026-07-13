@@ -22,8 +22,8 @@ product_detector = ProductLifecycleDetector()
 campaign_detector = CampaignLifecycleDetector()
 strategy_engine = StrategyEngine()
 
-for rule in DEFAULT_STRATEGY_TEMPLATES:
-    strategy_engine.add_rule(rule)
+for strategy in DEFAULT_STRATEGY_TEMPLATES:
+    strategy_engine.add_strategy(strategy)
 
 
 # ============ 请求模型 ============
@@ -150,7 +150,7 @@ async def trigger_automation(
     # 注意：实际使用时需要先检测生命周期，再匹配
     # 这里简化处理，直接返回策略列表
 
-    rules = strategy_engine.list_rules(
+    strategies = strategy_engine.list_strategies(
         dimension=dimension,
         enabled_only=True
     )
@@ -158,14 +158,14 @@ async def trigger_automation(
     return {
         "entity_id": entity_id,
         "dimension": dimension,
-        "matched_rules": [
+        "matched_strategies": [
             {
-                "id": r.id,
-                "name": r.name,
-                "action": r.action.value,
-                "scale": r.scale.value,
+                "id": s.id,
+                "name": s.name,
+                "action": s.action.value,
+                "scale": s.scale.value,
             }
-            for r in rules[:5]  # 最多返回5条
+            for s in strategies[:5]  # 最多返回5条
         ],
         "status": "ready",
     }
@@ -182,6 +182,7 @@ class DecisionOutputRequest(BaseModel):
     channel_package_id: int | None = None
     language_code: str | None = None
     short_play_name: str | None = None
+    video_id: str | None = None  # shortPlayLibraryId (= 报表 videoId)，用于素材查询过滤
     reason: str = ""
 
 
@@ -202,6 +203,8 @@ async def output_decision(req: DecisionOutputRequest):
         payload["language_code"] = req.language_code
     if req.short_play_name is not None:
         payload["short_play_name"] = req.short_play_name
+    if req.video_id is not None:
+        payload["video_id"] = req.video_id
 
     decision = {
         "decision_id": decision_id,

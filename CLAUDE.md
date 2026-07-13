@@ -1,86 +1,72 @@
-# smart_ad_put - 智能广告基建系统
+# CLAUDE.md
 
-## 项目概述
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-智能基建旨在解决当前广告投放中"基建工作"面临的三大痛点：
-- 被动响应：优化师在广告效果衰减后才补充新广告，存在反应滞后
-- 经验依赖：何时新建广告、复制多少条、启用哪些素材，高度依赖个人经验
-- 效率瓶颈：无法根据生命周期阶段自动触发
+## 常用命令
 
-核心价值是将"人工定期批量创建"升级为"系统实时自动耕作"。
+```bash
+# 后端 (Python 3.11+)
+uv run uvicorn src.api.main:app --reload --port 8000    # 启动 API 服务
+uv run pytest                                             # 运行全部测试
+uv run pytest tests/unit/ -v                              # 仅运行单元测试
+uv run pytest -k "test_name" -v                           # 运行指定测试
 
-## 功能架构
+# 代码检查（修改文件后执行）
+uvx ruff check --select E,F,W,I,S,PERF --ignore W291,W293,E203 --line-length 120 <file>
+uvx mypy --strict <file>
+uvx pyright <file>
 
-```
-智能基建系统
-├── 多维度生命周期定义
-│   ├── 商品维度：引入期/成长期/成熟期/衰退期
-│   ├── 素材维度：新鲜期/黄金期/疲劳期/淘汰期
-│   └── 广告单元维度：冷启动期/稳定投放期/衰减期/关停期
-├── 生命周期自动化执行引擎
-│   ├── 增长期：饱和式攻击（裂变式创建、渠道扩张）
-│   ├── 稳定期：精细化维持（预算平滑、素材预热）
-│   └── 衰退期：有序撤退与补充（自动关停、基建补充）
-├── 基建策略工厂（可配置规则引擎）
-└── 诊断看板
-    ├── 商品健康度仪表盘
-    ├── 素材利用率
-    └── 基建效率报表
+# 前端
+cd frontend && npm run dev      # 启动 Vite 开发服务器
+cd frontend && npm run build    # 生产构建
+cd frontend && npm run lint     # ESLint
 ```
 
-## 核心模块
+## 架构
 
-1. **lifecycle-engine** - 生命周期判定引擎
-2. **automation-engine** - 自动化执行引擎
-3. **strategy-factory** - 基建策略工厂
-4. **dashboard** - 诊断看板
+### 核心数据流：生命周期 → 策略 → 决策
 
-## 技术方向（待讨论）
+```
+指标数据 → LifecycleDetector (阶段判定) → StrategyEngine (策略匹配) → DecisionCommander (决策输出)
+                ↑                              ↑                            ↑
+         src/core/lifecycle/            src/core/strategy/         src/core/automation/
+```
 
-- 数据存储方案
-- 实时数据处理架构
-- 规则引擎设计
-- 外部广告平台 API 集成
+1. **生命周期引擎** (`src/core/lifecycle/`) — 基于 ROI 阈值将实体（商品/Campaign/素材）归入不同生命周期阶段。核心业务规则：**ROI > 40% 为盈利线**。关键时间节点：6h（快速通道信号）、24h（冷启动判定）、72h（关键决策点）、7d（持续盈利确认）。
+
+2. **策略引擎** (`src/core/strategy/`) — 通过 `TriggerStageMapper` 将生命周期阶段匹配到预设策略。策略携带触发条件、冷却时间、时间窗口和规模配置。内置 `DEFAULT_STRATEGY_TEMPLATES`，覆盖冷死亡饱和攻击、成长期加预算、衰退期关停等场景。
+
+3. **自动化指挥官** (`src/core/automation/`) — 将策略匹配结果转为 `Decision` 对象，写入 `logs/decisions/` 下的按日 JSONL 日志。
+
+### auto_delivery 子系统 (`src/auto_delivery/`)
+
+独立于核心策略引擎的自动化投放管线：
+- `ApiClient` — 带认证的 HTTP 客户端，对接外部广告平台 API（凭证从 `config/credentials.json` 读取）
+- `AutoDeliveryRunner` — 编排 3 步流程：查询达标素材 → 绑定素材到短剧 → 按语言分组创建投放任务
+- `services/` — 各领域服务：素材、绑定、投放、渠道包、受众、报表
+
+### API 层 (`src/api/`)
+
+FastAPI 应用，4 个路由组：`/api/lifecycle`、`/api/automation`、`/api/strategy`、`/api/dashboard`。路由层很薄，直接委托给核心领域逻辑。
+
+### 前端 (`frontend/`)
+
+Vue 3 + Vite + TypeScript SPA，使用 Element Plus 组件库和 ECharts 图表。三个页面：Dashboard（看板）、Decisions（决策）、Strategy（策略）。状态管理用 Pinia，路由用 Vue Router。
+
+### 配置
+
+- `config/settings.py` — Pydantic Settings（读取 `.env`）；定义数据库 URL、Hive 配置、API 地址端口、轮询间隔
+- `config/credentials.json` — 外部 API 认证凭证（已 gitignore）；模板见 `credentials.example.json`
+- `pyproject.toml` — Hatchling 构建，pytest 启用 asyncio auto 模式，ruff 行宽 100
+
+## 项目背景
+
+智能基建系统——将"人工定期批量创建广告"升级为"系统实时自动耕作"。三个生命周期维度：商品（短剧）、素材、广告单元（Campaign）。各维度从观察期到衰退/关停期，阶段判定基于历史数据分析得出的 ROI 阈值。
 
 ## 开发原则
 
-- 先讨论再写代码
-- 每个功能先写测试
-- 小任务分步完成
-
-
-# 全局工程规范 (AI Agent 指令)
-
-**角色**: 严谨且极简的 Python 专家。宁反问不盲动；**但对于琐碎的小修补，允许自行判断并迅速执行。**
-
-## 1. 沟通与执行
-- **禁静默决策**: 遇歧义必须明确说出你的困惑，暴露假设让用户选择。
-- **主动纠偏**: 如果50行能解绝不写200行；遇更简方案须指明并 Push back。
-- **排错熔断**: 连错3次即求审。报错格式: `[根因]->[修复]->[下一步]`。
-- **权限红线**: 改架构、动依赖或不可逆操作前求审，禁私自 Commit。
-- **无痕记忆**: 状态仅存Session，禁生成 PLAN.md 等辅助文件。
-
-## 2. 外科手术式修改
-- **绝对极简**: 写最少代码解决问题，拒绝任何未要求的配置化与预测性功能。
-- **孤儿清理与追踪**: 仅清理本次衍生的无用导入/变量。**测试原则：你的每一行代码修改，都必须能直接追溯到用户的当前请求。**
-- **不碰无关代码**: 禁“顺手”重构或改格式，语言/风格硬性保持原样。历史死代码不准直接删。
-- **拒占位符**: 禁用 `...existing code...` 偷懒，须输出完整的真实上下文。
-
-## 3. 探查与验证
-- **严禁盲猜**: 遇陌生API必用 `python -c` 探查真签名，拒绝幻觉。
-- **目标转化**: 将任务转为可验证目标（修Bug = 先写能复现它的测试再跑通）。多步复杂任务按 `[动作] -> verify: [验证项]` 步进执行。
-
-## 4. 架构与规范
-- **领域防腐**: Domain持纯粹，对外依赖/模块通信全靠 `Protocol`/`ABC` 注入与抽象。
-- **扩展代改**: 拒堆 `if/else`，靠策略类/接口扩展。
-- **强制底线**: 公开接口全类型注解；捕捞具体异常；禁局部动态导入。
-- **强制后置校验**: 文件修改后无须询问，自动对该文件执行以下命令：
-```bash
-uvx mypy --strict <file>
-uvx ruff check --select E,F,W,I,S,PERF --ignore W291,W293,E203 --line-length 120 <file>
-uvx ruff format --check <file>
-uvx pyright <file>
-uvx ty check <file>
-uvx pyrefly check <file>
-```
-- **总结建议**: 给出哪些工具检查结果已被其他覆盖，下次可以不用安装的建议。
+- 先讨论再写代码，每个功能先写测试，小步推进
+- 领域防腐：核心模块依赖 Protocol/ABC，不直接依赖外部基础设施
+- 扩展代修改：通过策略类/接口扩展，拒绝堆 if/else
+- 公开接口全类型注解；捕捞具体异常；禁局部动态导入
+- 不碰无关代码，不静默格式化文件

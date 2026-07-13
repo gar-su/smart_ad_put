@@ -3,10 +3,16 @@
 
 从报表系统拉取短剧每日数据，聚合后计算分段指标，
 供生命周期检测器使用。
+
+支持两种模式:
+- 在线模式: 直接查询API获取数据
+- 离线模式: 从本地存储加载历史数据
 """
 
+import json
 from collections import defaultdict
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Optional
 
 from ..api.reporting import ReportingApi
@@ -16,10 +22,20 @@ from ..api.binding import BindingApi
 class ReportingService:
     """拉取并聚合短剧日报数据"""
 
-    def __init__(self, api: ReportingApi | None = None, binding_api: BindingApi | None = None):
+    def __init__(
+        self,
+        api: ReportingApi | None = None,
+        binding_api: BindingApi | None = None,
+        data_dir: Path | None = None,
+    ):
         self.api = api or ReportingApi()
         self._binding_api = binding_api or BindingApi()
         self._short_play_cache: dict[tuple[str, str], tuple[str, str] | None] = {}
+
+        # 数据存储目录，默认使用项目 data/video_daily 目录
+        base = Path(__file__).resolve().parent.parent.parent.parent
+        self.data_dir = data_dir or (base / "data" / "video_daily")
+        self.data_dir.mkdir(parents=True, exist_ok=True)
 
     def resolve_short_play_id(
         self,
@@ -54,11 +70,117 @@ class ReportingService:
         self._short_play_cache[cache_key] = None
         return None, None
 
+    def _day_file(self, d: date) -> Path:
+        """获取某日数据文件路径"""
+        return self.data_dir / f"{d.isoformat()}.json"
+
+    def fetch_and_store_day(self, query_date: date, page_size: int = 50) -> list[dict]:
+        """
+        查询并存储单日数据到本地文件（只查第一页）
+
+        Args:
+            query_date: 查询日期
+            page_size: 每页大小，默认 50
+
+        Returns:
+            该日所有短剧数据行
+        """
+        data = self.api.query_day(query_date, page=1, page_size=page_size)
+        rows = data.get("dayCostCollectVos", {}).get("rows", [])
+
+        # 存储到 {data_dir}/{date}.json
+        day_file = self._day_file(query_date)
+        with open(day_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "date": query_date.isoformat(),
+                "rows": rows,
+                "count": len(rows),
+            }, f, ensure_ascii=False, indent=2)
+
+        print(f"[ReportingService] 已存储 {query_date} -> {day_file} ({len(rows)} 条)")
+        return rows
+
+    def load_stored_day(self, query_date: date) -> list[dict] | None:
+        """
+        从本地加载单日数据
+
+        Args:
+            query_date: 查询日期
+
+        Returns:
+            该日所有短剧数据行，若不存在返回 None
+        """
+        day_file = self._day_file(query_date)
+        if not day_file.exists():
+            return None
+
+        with open(day_file, encoding="utf-8") as f:
+            data = json.load(f)
+
+        return data.get("rows", [])
+
+    def load_stored_days(self, start_date: date, end_date: date) -> dict[str, list[dict]]:
+        """
+        加载指定日期范围内所有已存储的数据
+
+        Args:
+            start_date: 开始日期（包含）
+            end_date: 结束日期（包含）
+
+        Returns:
+            {date_str: [rows...]} 字典，按日期排序
+        """
+        result: dict[str, list[dict]] = {}
+        current = start_date
+        while current <= end_date:
+            rows = self.load_stored_day(current)
+            if rows is not None:
+                result[current.isoformat()] = rows
+            current += timedelta(days=1)
+        return result
+
+    def fetch_and_store_range(
+        self,
+        start_date: date,
+        end_date: date,
+        skip_existing: bool = True,
+    ) -> dict[str, list[dict]]:
+        """
+        批量查询并存储日期范围内的数据
+
+        Args:
+            start_date: 开始日期（包含）
+            end_date: 结束日期（包含）
+            skip_existing: 若数据已存在是否跳过，默认 True
+
+        Returns:
+            {date_str: [rows...]} 字典
+        """
+        result: dict[str, list[dict]] = {}
+        current = start_date
+        while current <= end_date:
+            day_file = self._day_file(current)
+
+            if skip_existing and day_file.exists():
+                print(f"[ReportingService] 跳过已存储 {current}")
+                rows = self.load_stored_day(current)
+                if rows:
+                    result[current.isoformat()] = rows
+            else:
+                print(f"[ReportingService] 查询 {current}...")
+                rows = self.fetch_and_store_day(current)
+                result[current.isoformat()] = rows
+
+            current += timedelta(days=1)
+
+        return result
+
     def fetch_and_aggregate(
         self,
         days: int = 7,
         top_n: int = 200,
         target_date: date | None = None,
+        use_stored: bool = True,
     ) -> list[dict]:
         """
         拉取最近 N 天数据，聚合后返回带分段指标的短剧列表
@@ -67,6 +189,7 @@ class ReportingService:
             days: 聚合天数，默认 7 天
             top_n: 每天按 cost 取前 N 条，默认 200
             target_date: 截止日期，默认昨天
+            use_stored: 若为 True，优先从本地存储加载数据，只在数据不存在时查询API
 
         Returns:
             list[dict]，每条包含:
@@ -84,27 +207,48 @@ class ReportingService:
         """
         end_date = target_date or (date.today() - timedelta(days=1))
 
-        # 每天拉 top_n，按 videoId 分组
-        daily_by_video: dict[str, list[tuple[date, dict]]] = defaultdict(list)
+        # 每天拉 top_n，按 (videoId, language) 分组 = 短剧维度
+        daily_by_video: dict[tuple[str, str], list[tuple[date, dict]]] = defaultdict(list)
 
         for i in range(days):
             d = end_date - timedelta(days=i)
-            rows = self.api.query_top_n_by_cost(d, n=top_n)
+
+            # 优先从本地存储加载
+            if use_stored:
+                rows = self.load_stored_day(d)
+                if rows is None:
+                    # 存储中没有，先存储全部数据，再取 top_n
+                    rows = self.fetch_and_store_day(d)
+                # 从存储加载后（或刚存储的），按 cost 降序取 top_n
+                rows = sorted(
+                    [r for r in rows if float(r.get("cost", 0) or 0) > 0],
+                    key=lambda r: float(r.get("cost", 0) or 0),
+                    reverse=True,
+                )[:top_n]
+            else:
+                # 在线模式：只查第一页
+                data = self.api.query_day(d, page=1, page_size=top_n)
+                rows = data.get("dayCostCollectVos", {}).get("rows", [])
+                rows = sorted(
+                    [r for r in rows if float(r.get("cost", 0) or 0) > 0],
+                    key=lambda r: float(r.get("cost", 0) or 0),
+                    reverse=True,
+                )[:top_n]
+
             for row in rows:
                 video_id = str(row.get("videoId", ""))
-                if video_id:
-                    daily_by_video[video_id].append((d, row))
+                raw_language = row.get("language", "")
+                if video_id and raw_language:
+                    daily_by_video[(video_id, raw_language)].append((d, row))
 
         # 聚合
         aggregated = []
-        for video_id, day_entries in daily_by_video.items():
+        for (video_id, raw_language), day_entries in daily_by_video.items():
             # 按日期排序（最早在前）
             day_entries.sort(key=lambda x: x[0])
 
             if not day_entries:
                 continue
-
-            first_day = day_entries[0][0]
 
             # 累加
             total_revenue = 0.0
@@ -138,7 +282,6 @@ class ReportingService:
 
             duration_hours = len(day_entries) * 24
             video_name = day_entries[0][1].get("videoName", "")
-            raw_language = day_entries[0][1].get("language", "")
             lang_code = self._map_language(raw_language)
 
             # 解析 shortPlayId
@@ -174,10 +317,8 @@ class ReportingService:
         return aggregated
 
     def _parse_income(self, row: dict) -> float:
-        """解析收入（d0Iaa + d0AdRoi）"""
-        d0_iaa = self._parse_float(row.get("d0Iaa", 0))
-        d0_ad_roi = self._parse_float(row.get("d0AdRoi", 0))
-        return d0_iaa + d0_ad_roi
+        """解析 D0 收入（归因当日新增用户充值收入）"""
+        return self._parse_float(row.get("newUserRechargeAmount", 0))
 
     def _parse_cost(self, row: dict) -> float:
         """解析成本"""

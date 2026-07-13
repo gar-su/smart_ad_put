@@ -13,7 +13,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from src.core.strategy.models import (
-    StrategyRule,
+    Strategy,
     StrategyMatch,
     Dimension,
     TriggerStage,
@@ -30,13 +30,13 @@ router = APIRouter()
 strategy_engine = StrategyEngine()
 
 # 初始化默认策略
-for rule in DEFAULT_STRATEGY_TEMPLATES:
-    strategy_engine.add_rule(rule)
+for strategy in DEFAULT_STRATEGY_TEMPLATES:
+    strategy_engine.add_strategy(strategy)
 
 
 # ============ 请求/响应模型 ============
 
-class CreateRuleRequest(BaseModel):
+class CreateStrategyRequest(BaseModel):
     name: str
     description: str = ""
     dimension: str
@@ -45,13 +45,11 @@ class CreateRuleRequest(BaseModel):
     action: str
     scale_value: float = 10
     scale_max_limit: int = 100
-    confidence_min: float = 0.7
-    priority: int = 100
     cooldown_hours: int = 24
     enabled: bool = True
 
 
-class UpdateRuleRequest(CreateRuleRequest):
+class UpdateStrategyRequest(CreateStrategyRequest):
     pass
 
 
@@ -65,31 +63,31 @@ class MatchRequest(BaseModel):
 
 # ============ 策略管理 API ============
 
-@router.get("/rules")
-async def list_rules(dimension: Optional[str] = None, enabled_only: bool = True):
-    """获取策略规则列表"""
+@router.get("/strategies")
+async def list_strategies(dimension: Optional[str] = None, enabled_only: bool = True):
+    """获取策略列表"""
     dim = Dimension(dimension) if dimension else None
-    rules = strategy_engine.list_rules(dimension=dim, enabled_only=enabled_only)
+    strategies = strategy_engine.list_strategies(dimension=dim, enabled_only=enabled_only)
     return {
-        "rules": [rule.model_dump() for rule in rules],
-        "total": len(rules)
+        "strategies": [s.model_dump() for s in strategies],
+        "total": len(strategies)
     }
 
 
-@router.get("/rules/{rule_id}")
-async def get_rule(rule_id: str):
-    """获取单个策略规则"""
-    rule = strategy_engine.get_rule(rule_id)
-    if not rule:
-        raise HTTPException(status_code=404, detail="规则不存在")
-    return rule.model_dump()
+@router.get("/strategies/{strategy_id}")
+async def get_strategy(strategy_id: str):
+    """获取单个策略"""
+    strategy = strategy_engine.get_strategy(strategy_id)
+    if not strategy:
+        raise HTTPException(status_code=404, detail="策略不存在")
+    return strategy.model_dump()
 
 
-@router.post("/rules")
-async def create_rule(req: CreateRuleRequest):
-    """创建策略规则"""
-    rule = StrategyRule(
-        id=f"rule_{datetime.utcnow().timestamp()}",
+@router.post("/strategies")
+async def create_strategy(req: CreateStrategyRequest):
+    """创建策略"""
+    strategy = Strategy(
+        id=f"strategy_{datetime.utcnow().timestamp()}",
         name=req.name,
         description=req.description,
         dimension=Dimension(req.dimension),
@@ -97,26 +95,24 @@ async def create_rule(req: CreateRuleRequest):
         conditions=[Condition(**c) for c in req.conditions],
         action=ActionType(req.action),
         scale=ScaleConfig(type="fixed", value=req.scale_value, max_limit=req.scale_max_limit),
-        confidence_min=req.confidence_min,
-        priority=req.priority,
         cooldown_hours=req.cooldown_hours,
         enabled=req.enabled,
         created_at=datetime.utcnow().isoformat(),
         updated_at=datetime.utcnow().isoformat(),
     )
-    strategy_engine.add_rule(rule)
-    return {"id": rule.id, "status": "created"}
+    strategy_engine.add_strategy(strategy)
+    return {"id": strategy.id, "status": "created"}
 
 
-@router.put("/rules/{rule_id}")
-async def update_rule(rule_id: str, req: UpdateRuleRequest):
-    """更新策略规则"""
-    existing = strategy_engine.get_rule(rule_id)
+@router.put("/strategies/{strategy_id}")
+async def update_strategy(strategy_id: str, req: UpdateStrategyRequest):
+    """更新策略"""
+    existing = strategy_engine.get_strategy(strategy_id)
     if not existing:
-        raise HTTPException(status_code=404, detail="规则不存在")
+        raise HTTPException(status_code=404, detail="策略不存在")
 
-    updated = StrategyRule(
-        id=rule_id,
+    updated = Strategy(
+        id=strategy_id,
         name=req.name,
         description=req.description,
         dimension=Dimension(req.dimension),
@@ -124,41 +120,39 @@ async def update_rule(rule_id: str, req: UpdateRuleRequest):
         conditions=[Condition(**c) for c in req.conditions],
         action=ActionType(req.action),
         scale=ScaleConfig(type="fixed", value=req.scale_value, max_limit=req.scale_max_limit),
-        confidence_min=req.confidence_min,
-        priority=req.priority,
         cooldown_hours=req.cooldown_hours,
         enabled=req.enabled,
         created_at=existing.created_at,
         updated_at=datetime.utcnow().isoformat(),
     )
-    strategy_engine.add_rule(updated)
-    return {"id": rule_id, "status": "updated"}
+    strategy_engine.add_strategy(updated)
+    return {"id": strategy_id, "status": "updated"}
 
 
-@router.delete("/rules/{rule_id}")
-async def delete_rule(rule_id: str):
-    """删除策略规则"""
-    if not strategy_engine.get_rule(rule_id):
-        raise HTTPException(status_code=404, detail="规则不存在")
-    strategy_engine.remove_rule(rule_id)
-    return {"id": rule_id, "status": "deleted"}
+@router.delete("/strategies/{strategy_id}")
+async def delete_strategy(strategy_id: str):
+    """删除策略"""
+    if not strategy_engine.get_strategy(strategy_id):
+        raise HTTPException(status_code=404, detail="策略不存在")
+    strategy_engine.remove_strategy(strategy_id)
+    return {"id": strategy_id, "status": "deleted"}
 
 
-@router.post("/rules/{rule_id}/toggle")
-async def toggle_rule(rule_id: str, enabled: bool):
-    """启用/禁用规则"""
-    rule = strategy_engine.get_rule(rule_id)
-    if not rule:
-        raise HTTPException(status_code=404, detail="规则不存在")
-    rule.enabled = enabled
-    return {"id": rule_id, "enabled": enabled}
+@router.post("/strategies/{strategy_id}/toggle")
+async def toggle_strategy(strategy_id: str, enabled: bool):
+    """启用/禁用策略"""
+    strategy = strategy_engine.get_strategy(strategy_id)
+    if not strategy:
+        raise HTTPException(status_code=404, detail="策略不存在")
+    strategy.enabled = enabled
+    return {"id": strategy_id, "enabled": enabled}
 
 
 # ============ 策略匹配 API ============
 
 @router.post("/match")
-async def match_rules(req: MatchRequest):
-    """匹配策略规则"""
+async def match_strategies(req: MatchRequest):
+    """匹配策略"""
     # 生命周期阶段映射（基于ROI）
     stage_map = {
         # Campaign维度
@@ -172,7 +166,6 @@ async def match_rules(req: MatchRequest):
         # Product维度
         "product_profitable": Stage.PRODUCT_PROFITABLE,
         "product_loss": Stage.PRODUCT_LOSS,
-        "product_dead": Stage.PRODUCT_DEAD,
     }
 
     dimension_map = {
@@ -189,11 +182,11 @@ async def match_rules(req: MatchRequest):
         confidence=req.confidence,
     )
 
-    matches = strategy_engine.match_rules(lifecycle_record, req.metrics)
+    matches = strategy_engine.match_strategies(lifecycle_record, req.metrics)
 
     # 记录触发时间
     for match in matches:
-        strategy_engine.trigger_rule(match.rule.id)
+        strategy_engine.record_trigger(match.strategy.id)
 
     # 生成决策
     decisions = DecisionGenerator.generate_decisions(matches)
@@ -201,8 +194,8 @@ async def match_rules(req: MatchRequest):
     return {
         "matches": [
             {
-                "rule_id": m.rule.id,
-                "rule_name": m.rule.name,
+                "strategy_id": m.strategy.id,
+                "strategy_name": m.strategy.name,
                 "action": m.action.value,
                 "scale": m.scale.value,
                 "confidence": m.confidence,
@@ -228,7 +221,6 @@ async def list_templates():
                 "trigger_stages": [s.value for s in t.trigger_stages],
                 "action": t.action.value,
                 "scale": {"value": t.scale.value, "max_limit": t.scale.max_limit},
-                "priority": t.priority,
             }
             for t in DEFAULT_STRATEGY_TEMPLATES
         ]

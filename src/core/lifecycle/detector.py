@@ -10,6 +10,7 @@
 - 72小时是判断Campaign生死的关键节点
 - 前24h ROI < 10% 的Campaign，85%最终无法盈利
 - 盈利Campaign的订单收入占比 > 90%
+- 6h快速信号: 能盈利的Campaign在6h内ROI即达60%，6h ROI>40%为快速通道
 
 数据集: 0301-0307 和 0315-0321
 """
@@ -56,7 +57,8 @@ class ROIThresholds:
     ROI_MEDIUM: float = 0.40      # < 40% = 中等ROI
 
     # 时间节点
-    COLD_START_HOURS: int = 24   # 冷启动期（小时）
+    EARLY_SIGNAL_HOURS: int = 6   # 早期信号快速通道（小时）
+    COLD_START_HOURS: int = 24    # 冷启动期（小时）
     VERIFY_HOURS: int = 72        # 验证期（小时）
     SUSTAINED_DAYS: int = 7       # 持续盈利判定天数
 
@@ -119,16 +121,26 @@ class CampaignLifecycleDetector:
     """
     广告单元（Campaign）生命周期检测器
 
-    基于ROI的判定逻辑:
+    互斥分段判定（按时长锁段，段内按ROI判定）:
 
-    阶段判定顺序:
-    1. CAMPAIGN_COLD_DEAD: 收入=0 或 ROI始终极低
-    2. CAMPAIGN_COLD_START: 前24h ROI < 10%
-    3. CAMPAIGN_VERIFY: 24-72h ROI在10-40%区间
-    4. CAMPAIGN_GROWTH: 72h后ROI > 40% 且增长
-    5. CAMPAIGN_SUSTAINED: ROI > 40% 超过7天
-    6. CAMPAIGN_DECLINE: ROI从高点下降 > 50%
-    7. CAMPAIGN_SHUTDOWN: ROI < 10% 持续72h+
+    SEGMENT 0 (< 24h):
+      >= 6h, ROI > 40%       → CAMPAIGN_GROWTH (快速通道, conf 0.85)
+      其他                     → CAMPAIGN_OBSERVING
+
+    SEGMENT 1 (24-72h):
+      roi_0_24h < 10%        → CAMPAIGN_COLD_START
+      roi_total 10%-40%      → CAMPAIGN_VERIFY
+      roi_total > 40%        → CAMPAIGN_GROWTH (early)
+
+    SEGMENT 2 (> 72h):
+      revenue = 0            → CAMPAIGN_COLD_DEAD
+      roi_total < 10%        → CAMPAIGN_SHUTDOWN
+      peak > 40%, drop >50%  → CAMPAIGN_DECLINE
+      >7d, roi > 40% stable  → CAMPAIGN_SUSTAINED
+      roi_total > 40%        → CAMPAIGN_GROWTH
+      roi 10-40%, trend up   → CAMPAIGN_GROWTH (low conf)
+      roi 10-40%, trend down → CAMPAIGN_DECLINE (low conf)
+      10-40%, flat           → CAMPAIGN_OBSERVING
     """
 
     def __init__(
@@ -156,158 +168,144 @@ class CampaignLifecycleDetector:
         ad_amt: float = 0,
     ) -> DetectionResult:
         """
-        检测广告单元生命周期阶段
+        检测广告单元生命周期阶段（互斥分段判定）
 
-        Args:
-            duration_hours: 投放时长（小时）
-            revenue: 总收入 (d0_order_amt + d0_ad_amt)
-            cost: 总成本
-            revenue_0_24h: 前24小时收入
-            cost_0_24h: 前24小时成本
-            revenue_24_72h: 24-72小时收入
-            cost_24_72h: 24-72小时成本
-            revenue_72plus: 72小时后收入
-            cost_72plus: 72小时后成本
-            order_amt: 订单收入
-            ad_amt: 广告收入
+        SEGMENT 0 (< 24h):  OBSERVING | GROWTH (快速通道: >= 6h + ROI > 40%)
+        SEGMENT 1 (24-72h): COLD_START | VERIFY | early GROWTH
+        SEGMENT 2 (> 72h):  COLD_DEAD | SHUTDOWN | DECLINE | GROWTH | SUSTAINED
         """
 
-        # 计算各阶段ROI
         roi_0_24h = revenue_0_24h / cost_0_24h if cost_0_24h > 0 else 0
         roi_24_72h = revenue_24_72h / cost_24_72h if cost_24_72h > 0 else 0
         roi_72plus = revenue_72plus / cost_72plus if cost_72plus > 0 else 0
         roi_total = revenue / cost if cost > 0 else 0
+        peak_roi = max(roi_0_24h, roi_24_72h, roi_72plus)
 
-        # ========== 0. 待观察: 投放<24h，时间不足无法判断 ==========
+        # ================================================================
+        # SEGMENT 0: < 24h — 待观察 / 快速通道
+        # ================================================================
         if duration_hours < 24:
+            # 快速通道: >= 6h 且 ROI > 40% — 早期盈利信号
+            if duration_hours >= self.roi.EARLY_SIGNAL_HOURS and roi_total > self.roi.PROFITABLE_ROI:
+                return DetectionResult(
+                    stage=Stage.CAMPAIGN_GROWTH,
+                    confidence=0.85,
+                    reason=f"快速通道: 投放{duration_hours:.0f}h，ROI={roi_total*100:.1f}% > 40%，早期盈利信号",
+                    metrics={"roi": roi_total, "duration_hours": duration_hours, "profitability": "early_signal"},
+                )
             return DetectionResult(
                 stage=Stage.CAMPAIGN_OBSERVING,
                 confidence=0.50,
                 reason=f"待观察: 投放{duration_hours:.0f}h < 24h，时间不足无法判断",
-                metrics={
-                    "duration_hours": duration_hours,
-                    "revenue": revenue,
-                    "roi": roi_total
-                }
+                metrics={"duration_hours": duration_hours, "revenue": revenue, "roi": roi_total},
             )
 
-        # ========== 1. 冷死亡: 投放>72h且从未产生收入 ==========
-        if duration_hours > 72 and revenue == 0:
-            return DetectionResult(
-                stage=Stage.CAMPAIGN_COLD_DEAD,
-                confidence=0.95,
-                reason=f"冷死亡: 投放{duration_hours:.0f}h，从未产生收入",
-                metrics={
-                    "revenue": 0,
-                    "cost": cost,
-                    "duration_hours": duration_hours,
-                    "death_probability": 0.95
-                }
-            )
-
-        # ========== 2. 关停期: ROI < 10% 持续72h+ ==========
-        if duration_hours > 72 and roi_total < self.roi.ROI_VERY_LOW:
-            return DetectionResult(
-                stage=Stage.CAMPAIGN_SHUTDOWN,
-                confidence=0.90,
-                reason=f"关停期: ROI={roi_total*100:.1f}% < 10%，持续{duration_hours:.0f}h",
-                metrics={
-                    "roi": roi_total,
-                    "duration_hours": duration_hours,
-                    "survival_probability": 0.05
-                }
-            )
-
-        # ========== 3. 冷启动: 前24h ROI < 10% ==========
-        if duration_hours >= 24 and roi_0_24h < self.roi.ROI_VERY_LOW:
-            return DetectionResult(
-                stage=Stage.CAMPAIGN_COLD_START,
-                confidence=0.85,
-                reason=f"冷启动: 前24h ROI={roi_0_24h*100:.1f}% < 10%，风险高",
-                metrics={
-                    "roi_0_24h": roi_0_24h,
-                    "revenue_0_24h": revenue_0_24h,
-                    "cost_0_24h": cost_0_24h,
-                    "failure_probability": 0.85
-                }
-            )
-
-        # ========== 4. 衰退期: ROI从高点下降 > 50% ==========
-        if roi_0_24h > self.roi.PROFITABLE_ROI and roi_total < roi_0_24h * 0.5:
-            return DetectionResult(
-                stage=Stage.CAMPAIGN_DECLINE,
-                confidence=0.85,
-                reason=f"衰退期: ROI从{roi_0_24h*100:.1f}%下降到{roi_total*100:.1f}%，降幅>50%",
-                metrics={
-                    "roi_initial": roi_0_24h,
-                    "roi_current": roi_total,
-                    "decline_pct": (roi_0_24h - roi_total) / roi_0_24h if roi_0_24h > 0 else 0
-                }
-            )
-
-        # ========== 5. 持续盈利: ROI > 40% 超过7天 ==========
-        if duration_hours > 168 and roi_total > self.roi.PROFITABLE_ROI:
-            if roi_72plus > self.roi.PROFITABLE_ROI:
+        # ================================================================
+        # SEGMENT 1: 24-72h — 冷启动 / 验证期 / 早期盈利
+        # ================================================================
+        if duration_hours <= 72:
+            # 冷启动: 前24h ROI < 10%
+            if roi_0_24h < self.roi.ROI_VERY_LOW:
                 return DetectionResult(
-                    stage=Stage.CAMPAIGN_SUSTAINED,
-                    confidence=0.90,
-                    reason=f"持续盈利: ROI={roi_total*100:.1f}% > 40%，持续超过7天",
+                    stage=Stage.CAMPAIGN_COLD_START,
+                    confidence=0.85,
+                    reason=f"冷启动: 前24h ROI={roi_0_24h*100:.1f}% < 10%，风险高",
                     metrics={
-                        "roi": roi_total,
-                        "duration_hours": duration_hours,
-                        "profitability": "sustained"
-                    }
+                        "roi_0_24h": roi_0_24h,
+                        "revenue_0_24h": revenue_0_24h,
+                        "cost_0_24h": cost_0_24h,
+                        "failure_probability": 0.85,
+                    },
                 )
 
-        # ========== 6. 成长期: 72h后ROI > 40% ==========
-        if duration_hours > 72 and roi_total > self.roi.PROFITABLE_ROI:
-            return DetectionResult(
-                stage=Stage.CAMPAIGN_GROWTH,
-                confidence=0.85,
-                reason=f"成长期: ROI={roi_total*100:.1f}% > 40%，进入盈利阶段",
-                metrics={
-                    "roi": roi_total,
-                    "duration_hours": duration_hours,
-                    "profitability": "profitable"
-                }
-            )
-
-        # ========== 7. 验证期: 24-72h ROI在10-40% ==========
-        if 24 < duration_hours <= 72:
-            if self.roi.ROI_VERY_LOW < roi_total <= self.roi.PROFITABLE_ROI:
+            # 验证期: ROI在10%-40%之间
+            if roi_total <= self.roi.PROFITABLE_ROI:
                 return DetectionResult(
                     stage=Stage.CAMPAIGN_VERIFY,
                     confidence=0.75,
                     reason=f"验证期: ROI={roi_total*100:.1f}% (10%-40%)，关键决策点",
-                    metrics={
-                        "roi": roi_total,
-                        "duration_hours": duration_hours,
-                        "pass_probability": 0.30
-                    }
+                    metrics={"roi": roi_total, "duration_hours": duration_hours, "pass_probability": 0.30},
                 )
 
-        # ========== 8. 冷启动（24h内）: 24-72h内ROI仍然极低 ==========
-        if 24 < duration_hours <= 72 and roi_total < self.roi.ROI_VERY_LOW:
+            # 早期盈利: 24-72h内 ROI > 40%（少见但存在，置信度偏低待验证）
             return DetectionResult(
-                stage=Stage.CAMPAIGN_COLD_START,
-                confidence=0.80,
-                reason=f"冷启动: ROI={roi_total*100:.1f}% < 10%，持续低迷",
-                metrics={
-                    "roi": roi_total,
-                    "duration_hours": duration_hours,
-                    "failure_probability": 0.80
-                }
+                stage=Stage.CAMPAIGN_GROWTH,
+                confidence=0.70,
+                reason=f"早期成长期: ROI={roi_total*100:.1f}% > 40%，需持续观察",
+                metrics={"roi": roi_total, "duration_hours": duration_hours, "profitability": "early"},
             )
 
-        # ========== 9. 待观察（默认）: 需要更多数据 ==========
+        # ================================================================
+        # SEGMENT 2: > 72h — 冷死亡 / 关停 / 衰退 / 成长 / 持续盈利
+        # ================================================================
+
+        # 冷死亡: 从未产生收入
+        if revenue == 0:
+            return DetectionResult(
+                stage=Stage.CAMPAIGN_COLD_DEAD,
+                confidence=0.95,
+                reason=f"冷死亡: 投放{duration_hours:.0f}h，从未产生收入",
+                metrics={"revenue": 0, "cost": cost, "duration_hours": duration_hours, "death_probability": 0.95},
+            )
+
+        # 关停期: ROI < 10%
+        if roi_total < self.roi.ROI_VERY_LOW:
+            return DetectionResult(
+                stage=Stage.CAMPAIGN_SHUTDOWN,
+                confidence=0.90,
+                reason=f"关停期: ROI={roi_total*100:.1f}% < 10%，持续{duration_hours:.0f}h",
+                metrics={"roi": roi_total, "duration_hours": duration_hours, "survival_probability": 0.05},
+            )
+
+        # 衰退期: ROI从高点下降 > 50%
+        if peak_roi > self.roi.PROFITABLE_ROI and roi_total < peak_roi * 0.5:
+            decline_pct = (peak_roi - roi_total) / peak_roi if peak_roi > 0 else 0
+            return DetectionResult(
+                stage=Stage.CAMPAIGN_DECLINE,
+                confidence=0.85,
+                reason=f"衰退期: ROI从{peak_roi*100:.1f}%下降到{roi_total*100:.1f}%，降幅>{decline_pct*100:.0f}%",
+                metrics={"roi_peak": peak_roi, "roi_current": roi_total, "decline_pct": decline_pct},
+            )
+
+        # 持续盈利: ROI > 40% 超过7天
+        if duration_hours > 168 and roi_total > self.roi.PROFITABLE_ROI and roi_72plus > self.roi.PROFITABLE_ROI:
+            return DetectionResult(
+                stage=Stage.CAMPAIGN_SUSTAINED,
+                confidence=0.90,
+                reason=f"持续盈利: ROI={roi_total*100:.1f}% > 40%，持续超过7天",
+                metrics={"roi": roi_total, "duration_hours": duration_hours, "profitability": "sustained"},
+            )
+
+        # 成长期: ROI > 40%
+        if roi_total > self.roi.PROFITABLE_ROI:
+            return DetectionResult(
+                stage=Stage.CAMPAIGN_GROWTH,
+                confidence=0.85,
+                reason=f"成长期: ROI={roi_total*100:.1f}% > 40%，进入盈利阶段",
+                metrics={"roi": roi_total, "duration_hours": duration_hours, "profitability": "profitable"},
+            )
+
+        # >72h 但 ROI 在 10-40% 之间: 根据趋势归类
+        if roi_72plus > roi_0_24h * 1.5:
+            return DetectionResult(
+                stage=Stage.CAMPAIGN_GROWTH,
+                confidence=0.60,
+                reason=f"趋势向好: ROI={roi_total*100:.1f}%，后期ROI提升显著",
+                metrics={"roi": roi_total, "roi_72plus": roi_72plus, "roi_0_24h": roi_0_24h},
+            )
+        if roi_72plus < roi_0_24h * 0.5 and roi_72plus > 0:
+            return DetectionResult(
+                stage=Stage.CAMPAIGN_DECLINE,
+                confidence=0.60,
+                reason=f"趋势下滑: ROI={roi_total*100:.1f}%，后期表现持续走弱",
+                metrics={"roi": roi_total, "roi_72plus": roi_72plus, "roi_0_24h": roi_0_24h},
+            )
+
         return DetectionResult(
             stage=Stage.CAMPAIGN_OBSERVING,
             confidence=0.50,
-            reason=f"待观察: ROI={roi_total*100:.1f}%，持续{duration_hours:.0f}h",
-            metrics={
-                "roi": roi_total,
-                "duration_hours": duration_hours
-            }
+            reason=f"待观察: ROI={roi_total*100:.1f}% (10-40%)，趋势不明，需持续监测",
+            metrics={"roi": roi_total, "duration_hours": duration_hours},
         )
 
     def get_profitability_probability(self, roi_0_24h: float, roi_72h: float | None = None) -> float:
@@ -379,15 +377,6 @@ class ProductLifecycleDetector:
 
         roi = total_revenue / total_cost if total_cost > 0 else 0
         days = duration_hours / 24  # 转换为天数
-
-        # ========== DEAD: 无投放 ==========
-        if total_cost == 0:
-            return DetectionResult(
-                stage=Stage.PRODUCT_DEAD,
-                confidence=0.95,
-                reason="无投放: 成本为0",
-                metrics={"total_revenue": total_revenue, "total_cost": total_cost}
-            )
 
         # ========== < 3天: OBSERVING ==========
         if days < 3:

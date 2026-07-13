@@ -20,8 +20,9 @@
             <el-tag v-else type="info">{{ row.type }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="dimension" label="维度" width="120" />
-        <el-table-column prop="target_id" label="目标ID" width="200" />
+        <el-table-column prop="strategy_name" label="策略" width="180" show-overflow-tooltip />
+        <el-table-column prop="dimension" label="维度" width="100" />
+        <el-table-column prop="target_id" label="目标ID" width="200" show-overflow-tooltip />
         <el-table-column prop="action" label="动作">
           <template #default="{ row }">
             <el-tag v-if="row.action === 'GROWTH_BURST'" type="success">饱和攻击</el-tag>
@@ -63,13 +64,24 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-const decisions = ref<any[]>([])
+const mockDecisions = [
+  { timestamp: '2026-04-20 14:30:00', type: 'CREATE_AD', dimension: 'campaign', target_id: 'campaign_005_abc123def456', action: 'GROWTH_BURST', strategy_name: '冷死亡-饱和攻击策略' },
+  { timestamp: '2026-04-20 14:15:00', type: 'CLONE_AD', dimension: 'campaign', target_id: 'campaign_001_xyz789', action: 'CLONE_AD', strategy_name: '冷启动-复制策略' },
+  { timestamp: '2026-04-20 13:50:00', type: 'ADJUST_BUDGET', dimension: 'campaign', target_id: 'campaign_456_mno345', action: 'INCREASE_BUDGET', strategy_name: '成长期-增加预算策略' },
+  { timestamp: '2026-04-20 13:20:00', type: 'STOP_AD', dimension: 'campaign', target_id: 'campaign_789_pqr678', action: 'GRACEFUL_SHUTDOWN', strategy_name: '衰退期-有序关停策略' },
+  { timestamp: '2026-04-20 12:45:00', type: 'CREATE_AD', dimension: 'product', target_id: 'product_010_ghi901', action: 'REBUILD', strategy_name: '商品亏损-基建补充策略' },
+]
+
+const decisions = ref<any[]>([...mockDecisions])
 const currentPage = ref(1)
-const total = ref(0)
+const total = ref(mockDecisions.length)
 const detailVisible = ref(false)
 const detailContent = ref('')
 
 function refresh() {
+  decisions.value = [...mockDecisions]
+  total.value = mockDecisions.length
+  currentPage.value = 1
   ElMessage.success('刷新成功')
 }
 
