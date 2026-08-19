@@ -98,6 +98,10 @@
               <span class="label">本周决策:</span>
               <span class="value">{{ strategyStats.decisionsThisWeek }}</span>
             </div>
+            <div class="summary-item">
+              <span class="label">跟投信号:</span>
+              <span class="value">{{ strategyStats.followUpSignals }}</span>
+            </div>
           </div>
         </el-card>
       </el-col>
@@ -108,7 +112,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import * as echarts from 'echarts'
-import { Goods, Promotion, Clock, Cpu, TrendCharts } from '@element-plus/icons-vue'
+import { Goods, Promotion, Clock, Cpu, TrendCharts, Odometer } from '@element-plus/icons-vue'
 
 const lifecycleDimension = ref('campaign')
 const lifecycleChart = ref<HTMLElement>()
@@ -130,12 +134,15 @@ const strategyStats = reactive({
   enabledRules: 8,
   triggersToday: 12,
   decisionsThisWeek: 156,
+  followUpSignals: 8,
   topStrategies: [
     { name: '饱和攻击-成长期Campaign', count: 20 },
     { name: '预算递增-成长期Campaign', count: 15 },
     { name: '基建补充-衰退期Campaign', count: 12 },
     { name: '复制广告-冷启动期', count: 8 },
+    { name: '成长期-跟投', count: 8 },
     { name: '渠道扩张-持续盈利期', count: 6 },
+    { name: '持续盈利-跟投', count: 5 },
     { name: '有序关停-关停期', count: 5 }
   ]
 })
@@ -146,6 +153,7 @@ const statCards = computed(() => [
   { label: '今日策略触发', value: strategyStats.triggersToday || 0, color: '#e6a23c', icon: Clock },
   { label: '盈利率', value: (stats.profitabilityRate || 0) + '%', color: '#f56c6c', icon: Cpu },
   { label: '自动化基建计划', value: stats.automationPlanCount || 0, color: '#909399', icon: TrendCharts },
+  { label: '跟投信号', value: strategyStats.followUpSignals || 0, color: '#8e44ad', icon: Odometer },
 ])
 
 // 生命周期数据（饼图用短名称）

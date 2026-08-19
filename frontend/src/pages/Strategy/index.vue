@@ -52,7 +52,8 @@
             </el-table-column>
             <el-table-column prop="scale" label="规模" width="80">
               <template #default="{ row }">
-                {{ row.scale?.value || 0 }}
+                <span v-if="row.action === 'FOLLOW_UP'">—</span>
+                <span v-else>{{ row.scale?.value || 0 }}</span>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="150" fixed="right">
@@ -115,6 +116,9 @@
           <template #header>
             <span>阶段说明</span>
           </template>
+          <div class="followup-hint">
+            跟投档位（值得放量 → 发 FOLLOW_UP）：<el-tag size="small" type="success">成长期</el-tag><el-tag size="small" type="success">持续盈利</el-tag><el-tag size="small" type="success">入场期</el-tag><el-tag size="small" type="success">稳定期</el-tag>
+          </div>
           <el-collapse>
             <el-collapse-item title="广告单元维度（8阶段）" name="campaign">
               <div class="stage-list">
@@ -206,14 +210,18 @@
               <el-option label="基建补充（重新创建）" value="REBUILD" />
               <el-option label="降低预算" value="REDUCE_BUDGET" />
             </el-option-group>
+            <el-option-group label="跟投信号">
+              <el-option label="跟投信号（判定值得投 → 下游新建放量任务）" value="FOLLOW_UP" />
+            </el-option-group>
           </el-select>
         </el-form-item>
 
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="执行规模">
-              <el-input-number v-model="form.scale.value" :min="1" :max="form.scale.maxLimit" style="width: 100%" />
-              <span style="margin-left: 8px; color: #909399">条</span>
+              <el-input-number v-model="form.scale.value" :min="1" :max="form.scale.maxLimit" style="width: 100%" :disabled="form.action === 'FOLLOW_UP'" />
+              <span v-if="form.action === 'FOLLOW_UP'" style="margin-left: 8px; color: #909399">跟投信号不带规模（下游模板承载）</span>
+              <span v-else style="margin-left: 8px; color: #909399">条</span>
             </el-form-item>
           </el-col>
         </el-row>
@@ -311,6 +319,42 @@ const rules = ref([
     scale: { type: 'fixed', value: 20, maxLimit: 50 },
     cooldownHours: 12,
     enabled: true
+  },
+  {
+    id: '4',
+    name: '成长期-跟投',
+    description: 'Campaign进入成长期(ROI>40%)，判定值得跟投，发跟投信号',
+    dimension: 'campaign',
+    triggerStages: ['campaign_growth'],
+    conditions: [{ field: 'roi_total', operator: '>=', value: 0.4 }],
+    action: 'FOLLOW_UP',
+    scale: { type: 'fixed', value: 0, maxLimit: 0 },
+    cooldownHours: 72,
+    enabled: true
+  },
+  {
+    id: '5',
+    name: '持续盈利-跟投',
+    description: 'Campaign持续盈利超7天，判定值得跟投',
+    dimension: 'campaign',
+    triggerStages: ['campaign_sustained'],
+    conditions: [],
+    action: 'FOLLOW_UP',
+    scale: { type: 'fixed', value: 0, maxLimit: 0 },
+    cooldownHours: 168,
+    enabled: true
+  },
+  {
+    id: '6',
+    name: '盈利商品-跟投',
+    description: '商品进入入场/成长/稳定期，判定值得跟投',
+    dimension: 'product',
+    triggerStages: ['product_entry', 'product_growth', 'product_sustained'],
+    conditions: [],
+    action: 'FOLLOW_UP',
+    scale: { type: 'fixed', value: 0, maxLimit: 0 },
+    cooldownHours: 24,
+    enabled: true
   }
 ])
 
@@ -402,7 +446,8 @@ function formatAction(action: string) {
     'REBUILD': '基建补充',
     'INCREASE_BUDGET': '增加预算',
     'REDUCE_BUDGET': '降低预算',
-    'MAINTAIN': '维持现状'
+    'MAINTAIN': '维持现状',
+    'FOLLOW_UP': '跟投信号'
   }
   return map[action] || action
 }
@@ -418,7 +463,8 @@ function getActionType(action: string) {
     'MAINTAIN': 'info',
     'GRACEFUL_SHUTDOWN': 'danger',
     'REBUILD': 'danger',
-    'REDUCE_BUDGET': 'warning'
+    'REDUCE_BUDGET': 'warning',
+    'FOLLOW_UP': 'success'
   }
   return map[action] || 'info'
 }
@@ -533,5 +579,16 @@ function deleteRule(row: any) {
 .condition-hint {
   color: #909399;
   font-size: 13px;
+}
+
+.followup-hint {
+  font-size: 13px;
+  color: #606266;
+  margin-bottom: 10px;
+  line-height: 24px;
+}
+
+.followup-hint .el-tag {
+  margin-right: 4px;
 }
 </style>
