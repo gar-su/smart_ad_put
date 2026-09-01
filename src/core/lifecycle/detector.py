@@ -700,6 +700,7 @@ class LifecycleDetector:
         duration_hours: float,
         order_amt: float = 0,
         ad_amt: float = 0,
+        recent_roi_history: list[float] | None = None,
     ) -> LifecycleRecord:
         """检测商品生命周期"""
         result = self.product_detector.detect(
@@ -709,6 +710,7 @@ class LifecycleDetector:
             duration_hours=duration_hours,
             order_amt=order_amt,
             ad_amt=ad_amt,
+            recent_roi_history=recent_roi_history,
         )
 
         return LifecycleRecord(

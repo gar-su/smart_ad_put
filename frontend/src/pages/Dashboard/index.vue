@@ -60,7 +60,7 @@
       <el-col :span="12">
         <el-card shadow="hover">
           <template #header>
-            <span>策略触发排行</span>
+            <span>今日信号类型分布</span>
           </template>
           <div ref="decisionChart" class="chart-container"></div>
         </el-card>
@@ -80,27 +80,20 @@
       <el-col :span="12">
         <el-card shadow="hover">
           <template #header>
-            <span>策略执行摘要</span>
-            <el-button size="small" link type="primary" style="float: right" @click="$router.push('/strategy')">
-              管理策略
-            </el-button>
+            <span>今日信号摘要</span>
           </template>
           <div class="strategy-summary">
             <div class="summary-item">
-              <span class="label">启用策略:</span>
-              <span class="value">{{ strategyStats.enabledRules }} / {{ strategyStats.totalRules }}</span>
-            </div>
-            <div class="summary-item">
-              <span class="label">今日触发:</span>
-              <span class="value">{{ strategyStats.triggersToday }}</span>
-            </div>
-            <div class="summary-item">
-              <span class="label">本周决策:</span>
-              <span class="value">{{ strategyStats.decisionsThisWeek }}</span>
+              <span class="label">今日信号:</span>
+              <span class="value">{{ signalStats.todaySignals }}</span>
             </div>
             <div class="summary-item">
               <span class="label">跟投信号:</span>
-              <span class="value">{{ strategyStats.followUpSignals }}</span>
+              <span class="value">{{ signalStats.followUpSignals }}</span>
+            </div>
+            <div class="summary-item">
+              <span class="label">本周决策:</span>
+              <span class="value">{{ signalStats.decisionsThisWeek }}</span>
             </div>
           </div>
         </el-card>
@@ -128,32 +121,23 @@ const stats = reactive({
   automationPlanCount: 68
 })
 
-// 策略统计
-const strategyStats = reactive({
-  totalRules: 11,
-  enabledRules: 8,
-  triggersToday: 12,
+// 信号统计
+const signalStats = reactive({
+  todaySignals: 42,
   decisionsThisWeek: 156,
-  followUpSignals: 8,
-  topStrategies: [
-    { name: '饱和攻击-成长期Campaign', count: 20 },
-    { name: '预算递增-成长期Campaign', count: 15 },
-    { name: '基建补充-衰退期Campaign', count: 12 },
-    { name: '复制广告-冷启动期', count: 8 },
-    { name: '成长期-跟投', count: 8 },
-    { name: '渠道扩张-持续盈利期', count: 6 },
-    { name: '持续盈利-跟投', count: 5 },
-    { name: '有序关停-关停期', count: 5 }
-  ]
+  followUpSignals: 42,
 })
+
+// 今日信号类型分布
+const signalTypeData = [{ name: 'FOLLOW_UP 跟投', count: 42 }]
 
 const statCards = computed(() => [
   { label: '总商品数', value: stats.totalProducts || 0, color: '#409eff', icon: Goods },
   { label: '活跃广告', value: stats.activeCampaigns || 0, color: '#67c23a', icon: Promotion },
-  { label: '今日策略触发', value: strategyStats.triggersToday || 0, color: '#e6a23c', icon: Clock },
+  { label: '今日信号', value: signalStats.todaySignals || 0, color: '#e6a23c', icon: Clock },
   { label: '盈利率', value: (stats.profitabilityRate || 0) + '%', color: '#f56c6c', icon: Cpu },
   { label: '自动化基建计划', value: stats.automationPlanCount || 0, color: '#909399', icon: TrendCharts },
-  { label: '跟投信号', value: strategyStats.followUpSignals || 0, color: '#8e44ad', icon: Odometer },
+  { label: '跟投信号', value: signalStats.followUpSignals || 0, color: '#8e44ad', icon: Odometer },
 ])
 
 // 生命周期数据（饼图用短名称）
@@ -315,18 +299,18 @@ function initDecisionChart() {
     tooltip: { trigger: 'axis' },
     xAxis: {
       type: 'category',
-      data: strategyStats.topStrategies.map(s => s.name),
-      axisLabel: { rotate: 15, fontSize: 11 }
+      data: signalTypeData.map(s => s.name)
     },
-    yAxis: { type: 'value', name: '触发次数' },
+    yAxis: { type: 'value', name: '信号数' },
     series: [
       {
         type: 'bar',
-        data: strategyStats.topStrategies.map(s => s.count),
+        data: signalTypeData.map(s => s.count),
         itemStyle: {
           color: '#409eff',
           borderRadius: [4, 4, 0, 0]
-        }
+        },
+        label: { show: true, position: 'top' }
       }
     ]
   }

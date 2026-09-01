@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import settings
+from src.api.routers import dashboard, lifecycle, signals
 
 app = FastAPI(
     title="Smart Ad Put API",
@@ -24,15 +25,12 @@ async def health_check():
     return {"status": "healthy"}
 
 
-# 路由将在后续添加
-from src.api.routers import lifecycle, automation, strategy, dashboard
-
 app.include_router(lifecycle.router, prefix="/api/lifecycle", tags=["生命周期"])
-app.include_router(automation.router, prefix="/api/automation", tags=["自动化"])
-app.include_router(strategy.router, prefix="/api/strategy", tags=["策略"])
+app.include_router(signals.router, prefix="/api/signals", tags=["建造信号"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["看板"])
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host=settings.API_HOST, port=settings.API_PORT)

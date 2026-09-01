@@ -11,13 +11,13 @@
           <el-icon><DataAnalysis /></el-icon>
           <span>诊断看板</span>
         </el-menu-item>
-        <el-menu-item index="/strategy">
-          <el-icon><Setting /></el-icon>
-          <span>策略配置</span>
-        </el-menu-item>
         <el-menu-item index="/decisions">
           <el-icon><Document /></el-icon>
           <span>决策日志</span>
+        </el-menu-item>
+        <el-menu-item index="/config">
+          <el-icon><Setting /></el-icon>
+          <span>信号配置</span>
         </el-menu-item>
       </el-menu>
     </el-aside>
@@ -33,7 +33,7 @@
 </template>
 
 <script setup lang="ts">
-import { DataAnalysis, Setting, Document } from '@element-plus/icons-vue'
+import { DataAnalysis, Document, Setting } from '@element-plus/icons-vue'
 </script>
 
 <style scoped>

@@ -2,10 +2,10 @@
 Dashboard API
 """
 
-from fastapi import APIRouter
-from datetime import datetime, timedelta
 import json
-from pathlib import Path
+from datetime import datetime, timedelta
+
+from fastapi import APIRouter
 
 from config.settings import settings
 
@@ -15,28 +15,35 @@ router = APIRouter()
 @router.get("/summary")
 async def dashboard_summary():
     """看板总览"""
-    # 读取今日决策统计
-    today_decisions = 0
-    today_actions = {}
+    # 读取今日信号统计（decisions.jsonl 现为建造信号输出）
+    today_signals = 0
+    follow_up_count = 0
+    today_signal_types = {}
     date_str = datetime.utcnow().strftime("%Y-%m-%d")
     log_file = settings.DECISION_LOG_DIR / date_str / "decisions.jsonl"
 
     if log_file.exists():
         with open(log_file, "r", encoding="utf-8") as f:
             for line in f:
-                try:
-                    decision = json.loads(line)
-                    today_decisions += 1
-                    action = decision.get("action", "unknown")
-                    today_actions[action] = today_actions.get(action, 0) + 1
-                except:
+                line = line.strip()
+                if not line:
                     continue
+                try:
+                    signal = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                today_signals += 1
+                st = signal.get("signal_type", "unknown")
+                today_signal_types[st] = today_signal_types.get(st, 0) + 1
+                if st == "FOLLOW_UP":
+                    follow_up_count += 1
 
     return {
         "total_products": 1944,  # 示例数据
         "total_campaigns": 109198,
-        "active_decisions_today": today_decisions,
-        "today_actions": today_actions,
+        "active_decisions_today": today_signals,
+        "today_signal_types": today_signal_types,
+        "follow_up_signals_today": follow_up_count,
         "system_status": "running",
         "last_update": datetime.utcnow().isoformat(),
     }
@@ -74,7 +81,7 @@ async def material_utilization():
         "unused_materials": 0,
         "high_frequency_materials": [],
         "fatigue_warnings": [],
-        "note": "素材数据暂未接入"
+        "note": "素材数据暂未接入",
     }
 
 
@@ -102,7 +109,7 @@ async def efficiency_report():
                             cold_start_count += 1
                         if "decline" in decision.get("stage", ""):
                             decline_count += 1
-                    except:
+                    except (json.JSONDecodeError, KeyError):
                         continue
 
         decisions_by_day[date_str] = {
@@ -146,20 +153,3 @@ async def lifecycle_distribution(dimension: str = "product"):
             },
             "total_entities": 109198,
         }
-
-
-@router.get("/strategies/summary")
-async def strategies_summary():
-    """策略执行摘要"""
-    return {
-        "total_rules": 6,
-        "enabled_rules": 5,
-        "triggers_today": 12,
-        "decisions_today": 45,
-        "top_actions": [
-            {"action": "GROWTH_BURST", "count": 20},
-            {"action": "REBUILD", "count": 12},
-            {"action": "CLONE_AD", "count": 8},
-            {"action": "GRACEFUL_SHUTDOWN", "count": 5},
-        ],
-    }
