@@ -4,57 +4,61 @@ graph TB
     subgraph upstream["上游：数据供给"]
         meta["Meta 广告平台<br/>原始数据源"]
         hive["Hive 数仓<br/>ETL 清洗"]
-        cms["素材系统<br/>视频库"]
-        data_agg["数据聚合层<br/>Campaign×h 维度汇总"]
+        video_daily["短剧日数据<br/>data/video_daily/*.json（本期实读）"]
+        data_agg["数据聚合层<br/>Campaign×h 维度汇总（待接入）"]
 
         meta --> hive
         hive --> data_agg
-        cms --> data_agg
+        video_daily --> prod_agg
     end
 
     %% ===== 本系统 =====
     subgraph core["智能基建 (smart_ad_put)"]
         direction TB
 
+        subgraph agg["聚合"]
+            prod_agg["商品聚合<br/>ROI/成本/语言/近N天序列"]
+            cam_agg["Campaign 聚合<br/>分段 ROI"]
+        end
+
         subgraph detect["生命周期判定"]
             cam_detector["Campaign 检测器<br/>8阶段 / ROI阈值"]
             prod_detector["Product 检测器<br/>7阶段 / 趋势指标"]
-            mat_detector["Material 检测器<br/>4阶段 / CTR衰减"]
         end
 
-        subgraph strategy["策略引擎"]
-            engine["StrategyEngine<br/>11预置模板 + 自定义"]
-            matcher["策略匹配<br/>阶段→动作 映射"]
+        subgraph signal["建造信号（唯一产出）"]
+            mapper["StageSignalMapper<br/>阶段→信号类型<br/>config/signal_rules.json 注入"]
+            generator["BuildSignalGenerator<br/>组装 BuildSignal + 冷却控制"]
         end
 
-        subgraph decide["决策输出"]
-            commander["DecisionCommander<br/>决策落盘"]
+        subgraph persist["决策落盘"]
+            decision_log["logs/decisions/YYYY-MM-DD/<br/>decisions.jsonl"]
         end
 
-        subgraph dashboard["诊断看板"]
-            lifecycle_chart["生命周期分布"]
-            roi_chart["ROI分布"]
-            alert_list["告警列表"]
+        subgraph dashboard["查询 API"]
+            signals_api["/api/signals<br/>/api/signals/stats<br/>/api/signals/config"]
         end
 
-        detect --> strategy
-        strategy --> decide
-        decide --> dashboard
+        data_agg --> cam_agg
+        cam_agg --> cam_detector
+        prod_agg --> prod_detector
+        cam_detector --> mapper
+        prod_detector --> mapper
+        mapper --> generator
+        generator --> decision_log
+        decision_log --> signals_api
     end
 
     %% ===== 下游 =====
     subgraph downstream["下游：决策消费"]
-        auto_delivery["auto_delivery<br/>定时读取决策文件<br/>调用 Meta API 执行"]
-        frontend["诊断看板<br/>Vue3 前端"]
+        machine_delivery["machine-delivery<br/>接收 FOLLOW_UP → 新建放量任务<br/>（对接期不实现）"]
+        frontend["诊断看板 / 决策日志 / 信号配置<br/>Vue3 前端"]
         bi["外部 BI<br/>未来接入"]
 
-        decide -->|"JSON 决策文件"| auto_delivery
-        dashboard -->|"REST API"| frontend
-        decide -->|"JSONL 日志"| bi
+        decision_log -->|"FOLLOW_UP 信号"| machine_delivery
+        signals_api -->|"REST API"| frontend
+        decision_log -->|"JSONL 日志"| bi
     end
-
-    %% ===== 数据流 =====
-    data_agg -->|"P0: Campaign×h 指标<br/>P0: 商品-素材映射<br/>P1: 素材表现数据"| detect
 
     %% ===== 样式 =====
     style upstream fill:#f0f4ff,stroke:#409eff
@@ -65,33 +69,33 @@ graph TB
 
 ```mermaid
 graph LR
-    %% ===== 决策链路（时序） =====
+    %% ===== 信号链路（时序） =====
 
     subgraph phase1["① 数据输入"]
-        data["上游提供<br/>Campaign×h 指标"]
+        data["数据聚合<br/>data/video_daily / Campaign×h 指标"]
     end
 
     subgraph phase2["② 生命周期判定"]
-        detect_step["detector.detect()<br/>结合 ROI + 时长<br/>输出: 阶段 + 置信度"]
+        detect_step["LifecycleDetector<br/>判定阶段 + 置信度"]
     end
 
-    subgraph phase3["③ 策略匹配"]
-        match_step["engine.match()<br/>阶段过滤 + 条件检查<br/>+ 冷却时间控制<br/>输出: 匹配策略列表"]
+    subgraph phase3["③ 信号映射 + 冷却"]
+        map_step["StageSignalMapper → BuildSignalGenerator<br/>阶段→信号类型映射<br/>冷却期内不重复产出"]
     end
 
-    subgraph phase4["④ 决策输出"]
-        decide_step["generator.generate()<br/>策略 → 决策 JSON<br/>落盘到 logs/decisions/"]
+    subgraph phase4["④ 信号落盘"]
+        decide_step["FOLLOW_UP 信号<br/>写入 logs/decisions/YYYY-MM-DD/decisions.jsonl"]
     end
 
     subgraph phase5["⑤ 下游消费"]
-        ad["auto_delivery<br/>读取决策 → 执行投放"]
-        ui["前端看板<br/>展示诊断数据"]
+        machine["machine-delivery<br/>接收信号 → 新建放量任务<br/>（对接期不实现）"]
+        ui["诊断看板<br/>/api/signals 查询"]
     end
 
     data --> detect_step
-    detect_step --> match_step
-    match_step --> decide_step
-    decide_step --> ad
+    detect_step --> map_step
+    map_step --> decide_step
+    decide_step --> machine
     decide_step --> ui
 
     style phase1 fill:#f0f4ff,stroke:#409eff
@@ -108,15 +112,15 @@ graph TB
     subgraph api_surface["API 契约"]
 
         subgraph upstream_api["上游需要提供"]
-            u1["POST 或 查询表<br/>Campaign×h 聚合数据<br/><br/>字段:<br/>- campaign_id, product_id<br/>- duration_hours<br/>- revenue/cost 分时段<br/>- order_amt, ad_amt<br/>- total_pays"]
-            u2["商品-素材映射<br/>product_id ↔ video_id"]
-            u3["素材表现<br/>CTR / 消耗 / 转化率"]
+            u1["短剧日数据<br/>data/video_daily/*.json（本期实读）<br/><br/>字段:<br/>- videoId, videoRemark<br/>- videoName, language<br/>- roi, cost, rechargeAmt"]
+            u2["Campaign×h 聚合数据<br/>（大数据侧待接入）<br/><br/>字段:<br/>- campaign_id, hour<br/>- cost_h, show_cnt, click_cnt<br/>- d0_order_amt, link_language"]
+            u3["商品按日聚合<br/>（待接入）<br/><br/>字段:<br/>- product_id, date<br/>- cost, order_amt, ad_amt"]
         end
 
         subgraph downstream_api["本系统供给下游"]
-            d1["决策文件<br/>JSON<br/><br/>{<br/>  decision_id, type,<br/>  target_id, action,<br/>  payload, confidence<br/>}"]
-            d2["看板 API<br/>REST<br/><br/>- /dashboard/summary<br/>- /lifecycle/distribution<br/>- /automation/stats"]
-            d3["阶段检测 API<br/>REST<br/><br/>- /lifecycle/campaign/detect<br/>- /lifecycle/product/detect"]
+            d1["FOLLOW_UP 信号<br/>JSONL 文件 + 查询 API<br/><br/>{<br/>  signal_id, signal_type,<br/>  target_dimension, target_id,<br/>  language_code, timestamp,<br/>  reason, confidence<br/>}"]
+            d2["信号查询 API<br/>REST<br/><br/>- /api/signals<br/>- /api/signals/stats<br/>- /api/signals/config"]
+            d3["看板 API<br/>REST<br/><br/>- /api/dashboard/summary"]
         end
     end
 

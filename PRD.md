@@ -15,6 +15,7 @@
 | 2026-04-21 | @AI助手 | 基于ROI数据分析重构生命周期定义，替换旧的cost-based阈值 |
 | 2026-08-19 | @AI助手 | 新增「跟投决策输出」模块：与 machine-delivery 对齐，盈利/成长/稳定阶段产出 `FOLLOW_UP` 跟投信号；新增信号字段契约与阶段→跟投映射；素材级跟投本期不实现 |
 | 2026-09-01 | @AI助手 | 落地信号机制：删除策略引擎与调整类动作，决策端本期**唯一产出** `FOLLOW_UP` 建造信号；新增信号模块（BuildSignal/映射/冷却）、pipeline 脚本、`/api/signals` 查询 API；前端移除策略配置页，看板与决策日志对齐信号契约 |
+| 2026-09-01 | @AI助手 | 补入 §5.1 领域模型：在线原型链接 + v4.0 mermaid 架构图（源自 v1.0，同步 docs/architecture.md）|
 ## 三、文档说明
 ### 3.1 名词解释
 | 术语 | 说明 |
@@ -71,7 +72,85 @@
 | 素材利用率 | 优质素材利用周期延长，库存周转率提升 50% | 降本增效 |
 | 跟投及时性 | 值得放量的目标自动拉起放量任务，无需人工盯数据 | 自动化投放链路闭环 |
 ## 五、功能详细说明
-### 5.1 模块总览
+### 5.1 领域模型（原型与架构）
+**在线原型**：https://gar-su.github.io/smart_ad_put/
+**系统架构**（v4.0 信号机制）：
+
+```mermaid
+graph TB
+    %% ===== 上游 =====
+    subgraph upstream["上游：数据供给"]
+        meta["Meta 广告平台<br/>原始数据源"]
+        hive["Hive 数仓<br/>ETL 清洗"]
+        video_daily["短剧日数据<br/>data/video_daily/*.json（本期实读）"]
+        data_agg["数据聚合层<br/>Campaign×h 维度汇总（待接入）"]
+
+        meta --> hive
+        hive --> data_agg
+        video_daily --> prod_agg
+    end
+
+    %% ===== 本系统 =====
+    subgraph core["智能基建 (smart_ad_put)"]
+        direction TB
+
+        subgraph agg["聚合"]
+            prod_agg["商品聚合<br/>ROI/成本/语言/近N天序列"]
+            cam_agg["Campaign 聚合<br/>分段 ROI"]
+        end
+
+        subgraph detect["生命周期判定"]
+            cam_detector["Campaign 检测器<br/>8阶段 / ROI阈值"]
+            prod_detector["Product 检测器<br/>7阶段 / 趋势指标"]
+        end
+
+        subgraph signal["建造信号（唯一产出）"]
+            mapper["StageSignalMapper<br/>阶段→信号类型<br/>config/signal_rules.json 注入"]
+            generator["BuildSignalGenerator<br/>组装 BuildSignal + 冷却控制"]
+        end
+
+        subgraph persist["决策落盘"]
+            decision_log["logs/decisions/YYYY-MM-DD/<br/>decisions.jsonl"]
+        end
+
+        subgraph dashboard["查询 API"]
+            signals_api["/api/signals<br/>/api/signals/stats<br/>/api/signals/config"]
+        end
+
+        data_agg --> cam_agg
+        cam_agg --> cam_detector
+        prod_agg --> prod_detector
+        cam_detector --> mapper
+        prod_detector --> mapper
+        mapper --> generator
+        generator --> decision_log
+        decision_log --> signals_api
+    end
+
+    %% ===== 下游 =====
+    subgraph downstream["下游：决策消费"]
+        machine_delivery["machine-delivery<br/>接收 FOLLOW_UP → 新建放量任务<br/>（对接期不实现）"]
+        frontend["诊断看板 / 决策日志 / 信号配置<br/>Vue3 前端"]
+        bi["外部 BI<br/>未来接入"]
+
+        decision_log -->|"FOLLOW_UP 信号"| machine_delivery
+        signals_api -->|"REST API"| frontend
+        decision_log -->|"JSONL 日志"| bi
+    end
+
+    %% ===== 样式 =====
+    style upstream fill:#f0f4ff,stroke:#409eff
+    style core fill:#f0fff0,stroke:#67c23a
+    style downstream fill:#fff7e6,stroke:#e6a23c
+    style data_agg fill:#fff,stroke-dasharray:5 5
+```
+
+**架构要点**：
+- 决策端本期唯一产出 `FOLLOW_UP` 建造信号，不实际执行；放量执行归属 machine-delivery（对接期不实现，见 §5.5.3）
+- 主链路：生命周期判定 → 阶段→信号映射（`config/signal_rules.json` 注入）→ 生成器（冷却控制）→ JSONL 落盘（见 §5.8.2）
+- 策略引擎已于 v4.0 移除；映射与冷却为单文件可配置（见 §5.5.2）
+
+### 5.1.1 模块总览
 | 模块 | 功能清单 |
 |---|---|
 | 生命周期判定 | 商品生命周期检测、Campaign生命周期检测、阶段说明查询、阈值配置 |
