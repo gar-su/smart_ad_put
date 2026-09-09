@@ -9,7 +9,7 @@
 - 盈利Campaign的订单收入占比 > 90%
 - 49%的存活>7天的Campaign能盈利
 
-参考: src/core/lifecycle/VALIDATION_REPORT.md
+参考: docs/lifecycle-threshold-validation.md
 """
 
 from enum import Enum

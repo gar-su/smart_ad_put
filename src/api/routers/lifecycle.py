@@ -1,5 +1,7 @@
-"""
-生命周期管理 API
+"""生命周期判定 API
+
+服务只做判定：输入实体的历史原子事实，输出它当前所处的生命周期阶段。
+不做信号、不存储、不取数（接口契约见 PRD §5.9）。
 
 基于ROI的业务标准:
 - 盈利标准: ROI > 40%
@@ -7,20 +9,33 @@
 - 关键决策点: 72小时
 """
 
-from fastapi import APIRouter, Query
-from pydantic import BaseModel
-from typing import Optional
+import datetime
+from typing import Any, Literal
 
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
+
+from src.core.lifecycle.aggregation import (
+    DailyFact,
+    FactValidationError,
+    HourlyFact,
+    aggregate_campaign,
+    aggregate_product,
+)
 from src.core.lifecycle.detector import (
     CampaignLifecycleDetector,
-    ProductLifecycleDetector,
-    ROIThresholds,
     CostThresholds,
+    DetectionResult,
+    ProductLifecycleDetector,
     RevenueThresholds,
+    ROIThresholds,
 )
-from src.core.lifecycle.stages import Stage
+from src.core.lifecycle.stages import Dimension
 
 router = APIRouter()
+
+# 批量检测单次上限（PRD §6.1）
+MAX_BATCH_ENTITIES = 1000
 
 # 初始化检测器（使用新的ROI阈值）
 campaign_detector = CampaignLifecycleDetector(
@@ -34,60 +49,154 @@ product_detector = ProductLifecycleDetector(
 )
 
 
-class CampaignDetectRequest(BaseModel):
-    """Campaign生命周期检测请求"""
-    entity_id: str
-    duration_hours: float
+class FactRecord(BaseModel):
+    """单条原子事实（字段名对齐数据契约 docs/data_contract.md §3）"""
 
-    # 收入数据
-    revenue: float = 0                    # 总收入 (d0_order_amt + d0_ad_amt)
-    cost: float = 0                      # 总成本
-    revenue_0_24h: float = 0            # 前24小时收入
-    cost_0_24h: float = 0              # 前24小时成本
-    revenue_24_72h: float = 0           # 24-72小时收入
-    cost_24_72h: float = 0              # 24-72小时成本
-    revenue_72plus: float = 0           # 72小时后收入
-    cost_72plus: float = 0              # 72小时后成本
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    # 收入构成
-    order_amt: float = 0                # 订单收入 (d0_order_amt)
-    ad_amt: float = 0                   # 广告收入 (d0_ad_amt)
-
-    # 可选指标
-    cost_per_hour: Optional[float] = None
-    ctr_first_24h: Optional[float] = None
-    total_pays: int = 0
+    date: datetime.date = Field(description="数据归属日")
+    hour: int | None = Field(default=None, ge=0, le=23, description="campaign 维度必填")
+    spend: float = Field(ge=0, description="消耗")
+    income_order: float = Field(alias="incomeOrder", ge=0, description="订单（充值）收入")
+    income_ad: float = Field(alias="incomeAd", ge=0, description="广告分成（IAA）收入")
 
 
-class ProductDetectRequest(BaseModel):
-    """Product生命周期检测请求"""
-    entity_id: str
+class DetectRequest(BaseModel):
+    """单实体判定请求"""
 
-    # 汇总数据
-    total_revenue: float = 0             # 总收入
-    total_cost: float = 0                # 总成本
-    campaign_count: int = 0              # 关联Campaign数
-    duration_hours: float = 0            # 最大投放时长
+    entity_id: str = Field(min_length=1, description="实体标识（短剧视频 ID / campaign ID）")
+    records: list[FactRecord] = Field(min_length=1, description="按时间升序的原子事实，不可断档")
 
-    # 收入构成
-    order_amt: float = 0                # 订单收入
-    ad_amt: float = 0                   # 广告收入
 
-    # 历史ROI数据（用于趋势判断）
-    # 近N天的每日ROI，按日期倒序排列
-    recent_roi_history: list[float] = []  # e.g., [0.52, 0.48, 0.55] 表示最近3天
+class BatchDetectRequest(BaseModel):
+    """批量判定请求（PRD §6.1：支持 1000+ 实体/次）"""
+
+    dimension: Literal["product", "campaign"]
+    entities: list[DetectRequest] = Field(min_length=1, max_length=MAX_BATCH_ENTITIES)
+
+
+def _payload(
+    entity_id: str,
+    dimension: Dimension,
+    result: DetectionResult,
+    roi: float,
+    revenue: float,
+    cost: float,
+    duration_hours: float,
+) -> dict[str, Any]:
+    """统一响应体：判定结论 + 判定用到的派生指标"""
+    return {
+        "entity_id": entity_id,
+        "dimension": dimension.value,
+        "stage": result.stage.value,
+        "confidence": result.confidence,
+        "reason": result.reason,
+        "metrics": {
+            **result.metrics,
+            "roi": roi,
+            "revenue": revenue,
+            "cost": cost,
+            "duration_hours": duration_hours,
+        },
+    }
+
+
+def _product_result(entity_id: str, records: list[FactRecord]) -> dict[str, Any]:
+    """短剧维度判定"""
+    try:
+        metrics = aggregate_product(
+            [
+                DailyFact(
+                    date=r.date,
+                    spend=r.spend,
+                    income_order=r.income_order,
+                    income_ad=r.income_ad,
+                )
+                for r in records
+            ]
+        )
+    except FactValidationError as exc:
+        raise HTTPException(status_code=400, detail={"entity_id": entity_id, "message": str(exc)}) from exc
+
+    result = product_detector.detect(
+        total_revenue=metrics.total_revenue,
+        total_cost=metrics.total_cost,
+        campaign_count=0,  # 原子事实里没有关联 Campaign 计数
+        duration_hours=metrics.duration_hours,
+        order_amt=metrics.order_amt,
+        ad_amt=metrics.ad_amt,
+        recent_roi_history=metrics.recent_roi_history,
+    )
+    roi = metrics.total_revenue / metrics.total_cost if metrics.total_cost > 0 else 0.0
+    return _payload(
+        entity_id, Dimension.PRODUCT, result, roi, metrics.total_revenue, metrics.total_cost, metrics.duration_hours
+    )
+
+
+def _campaign_result(entity_id: str, records: list[FactRecord]) -> dict[str, Any]:
+    """广告单元维度判定（分段收入/成本由小时记录聚合得出）"""
+    hourly: list[HourlyFact] = []
+    for r in records:
+        if r.hour is None:
+            raise HTTPException(
+                status_code=400,
+                detail={"entity_id": entity_id, "message": "campaign 维度的 records 必须带 hour"},
+            )
+        hourly.append(
+            HourlyFact(
+                date=r.date,
+                hour=r.hour,
+                spend=r.spend,
+                income_order=r.income_order,
+                income_ad=r.income_ad,
+            )
+        )
+
+    try:
+        metrics = aggregate_campaign(hourly)
+    except FactValidationError as exc:
+        raise HTTPException(status_code=400, detail={"entity_id": entity_id, "message": str(exc)}) from exc
+
+    result = campaign_detector.detect(
+        duration_hours=metrics.duration_hours,
+        revenue=metrics.revenue,
+        cost=metrics.cost,
+        revenue_0_24h=metrics.revenue_0_24h,
+        cost_0_24h=metrics.cost_0_24h,
+        revenue_24_72h=metrics.revenue_24_72h,
+        cost_24_72h=metrics.cost_24_72h,
+        revenue_72plus=metrics.revenue_72plus,
+        cost_72plus=metrics.cost_72plus,
+        order_amt=metrics.order_amt,
+        ad_amt=metrics.ad_amt,
+    )
+    roi = metrics.revenue / metrics.cost if metrics.cost > 0 else 0.0
+    return _payload(entity_id, Dimension.CAMPAIGN, result, roi, metrics.revenue, metrics.cost, metrics.duration_hours)
+
+
+@router.post("/product/detect")
+async def detect_product_lifecycle(req: DetectRequest) -> dict[str, Any]:
+    """
+    检测短剧（product）生命周期阶段
+
+    判定基于 ROI = (incomeOrder + incomeAd) / spend：
+    - observing: 投放 < 3天
+    - entry: 近3天ROI均值 > 40%（入场信号）
+    - sustained: 近5天ROI在30%-80%波动（稳定信号）
+    - growth: ROI > 40% 且趋势上升
+    - decline: ROI持续下滑 > 30%
+    - exit: ROI < 10% 持续5天
+    """
+    return _product_result(req.entity_id, req.records)
 
 
 @router.post("/campaign/detect")
-async def detect_campaign_lifecycle(req: CampaignDetectRequest):
+async def detect_campaign_lifecycle(req: DetectRequest) -> dict[str, Any]:
     """
-    检测广告单元（Campaign）生命周期阶段
+    检测广告单元（campaign）生命周期阶段
 
-    基于ROI的判定逻辑:
-    - ROI = 收入 / 成本
-    - 盈利标准: ROI > 40%
-    - 冷启动失败: 前24h ROI < 10%
-    - 关键决策点: 72小时
+    分段收入/成本由小时记录按距首条记录的小时偏移聚合：
+    < 24h、24-72h、≥ 72h。
 
     阶段说明:
     - cold_dead: 冷死亡，总收入=0
@@ -98,85 +207,19 @@ async def detect_campaign_lifecycle(req: CampaignDetectRequest):
     - decline: 衰退期，ROI从高点下降 > 50%
     - shutdown: 关停期，ROI < 10% 持续72h+
     """
-    result = campaign_detector.detect(
-        duration_hours=req.duration_hours,
-        revenue=req.revenue,
-        cost=req.cost,
-        revenue_0_24h=req.revenue_0_24h,
-        cost_0_24h=req.cost_0_24h,
-        revenue_24_72h=req.revenue_24_72h,
-        cost_24_72h=req.cost_24_72h,
-        revenue_72plus=req.revenue_72plus,
-        cost_72plus=req.cost_72plus,
-        order_amt=req.order_amt,
-        ad_amt=req.ad_amt,
-    )
-
-    # 计算ROI
-    roi = req.revenue / req.cost if req.cost > 0 else 0
-    roi_0_24h = req.revenue_0_24h / req.cost_0_24h if req.cost_0_24h > 0 else 0
-
-    return {
-        "entity_id": req.entity_id,
-        "stage": result.stage.value,
-        "confidence": result.confidence,
-        "reason": result.reason,
-        "metrics": result.metrics,
-        "roi": {
-            "total": roi,
-            "roi_0_24h": roi_0_24h,
-            "is_profitable": roi > 0.40,
-        },
-        "profitability_probability": campaign_detector.get_profitability_probability(roi_0_24h),
-    }
+    return _campaign_result(req.entity_id, req.records)
 
 
-@router.post("/product/detect")
-async def detect_product_lifecycle(req: ProductDetectRequest):
-    """
-    检测商品（ShortPlay）生命周期阶段
-
-    基于ROI的判定逻辑:
-    - observing: 投放 < 3天
-    - entry: 近3天ROI均值 > 40%（入场信号）
-    - sustained: 近5天ROI在30%-80%波动（稳定信号）
-    - growth: ROI > 40% 且趋势上升
-    - decline: ROI持续下滑 > 30%
-    - exit: ROI < 10% 持续5天
-    """
-    result = product_detector.detect(
-        total_revenue=req.total_revenue,
-        total_cost=req.total_cost,
-        campaign_count=req.campaign_count,
-        duration_hours=req.duration_hours,
-        order_amt=req.order_amt,
-        ad_amt=req.ad_amt,
-        recent_roi_history=req.recent_roi_history,
-    )
-
-    roi = req.total_revenue / req.total_cost if req.total_cost > 0 else 0
-    order_ratio = req.order_amt / req.total_revenue if req.total_revenue > 0 else 0
-
-    return {
-        "entity_id": req.entity_id,
-        "stage": result.stage.value,
-        "confidence": result.confidence,
-        "reason": result.reason,
-        "metrics": result.metrics,
-        "roi": {
-            "total": roi,
-            "is_profitable": roi > 0.40,
-        },
-        "revenue_breakdown": {
-            "order_amt": req.order_amt,
-            "ad_amt": req.ad_amt,
-            "order_ratio": order_ratio,
-        },
-    }
+@router.post("/detect/batch")
+async def detect_batch(req: BatchDetectRequest) -> dict[str, Any]:
+    """批量判定：同一维度下多个实体，单次上限 1000 个（PRD §6.1）"""
+    detect = _product_result if req.dimension == "product" else _campaign_result
+    results = [detect(entity.entity_id, entity.records) for entity in req.entities]
+    return {"dimension": req.dimension, "total": len(results), "results": results}
 
 
 @router.get("/stages")
-async def list_stages(dimension: str = Query(..., description="维度: product 或 campaign")):
+async def list_stages(dimension: str = Query(..., description="维度: product 或 campaign")) -> dict[str, Any]:
     """获取指定维度的所有生命周期阶段"""
 
     # Campaign阶段（基于ROI）
@@ -214,7 +257,7 @@ async def list_stages(dimension: str = Query(..., description="维度: product �
 
 
 @router.get("/thresholds")
-async def get_thresholds():
+async def get_thresholds() -> dict[str, Any]:
     """获取当前配置的ROI阈值"""
     return {
         "roi": {

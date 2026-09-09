@@ -1,0 +1,29 @@
+# 版本控制与本地环境
+.git
+.gitignore
+.venv
+.worktrees
+__pycache__
+*.py[cod]
+.mypy_cache
+.pytest_cache
+.ruff_cache
+
+# 前端与原型（不在服务镜像内）
+frontend
+.github
+
+# 数据与产物（服务不取数、不落盘）
+data
+data_pages
+logs
+output
+analysis_results
+shortplay_daily_data.json
+fetch_and_store.py
+fetch_shortplay_data.py
+
+# 文档与测试
+docs
+tests
+*.md

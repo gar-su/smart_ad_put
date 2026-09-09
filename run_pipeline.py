@@ -71,6 +71,7 @@ def main() -> None:
     rules = SignalRules.load(SIGNAL_RULES_PATH)  # 配置缺失时用内置默认（§5.5.2）
     generator = BuildSignalGenerator(
         cooldown_hours=rules.cooldown_hours,
+        cooldown_map=rules.cooldown_map,
         mapper=StageSignalMapper(rules.follow_up_stages),
     )
 

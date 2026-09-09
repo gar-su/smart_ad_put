@@ -12,16 +12,34 @@ def test_load_missing_file_returns_defaults(tmp_path):
     rules = SignalRules.load(tmp_path / "no_such.json")
     assert rules.follow_up_stages == DEFAULT_FOLLOW_UP_STAGES
     assert rules.cooldown_hours == 24
+    assert rules.cooldown_map == {}
 
 
 def test_load_roundtrip(tmp_path):
-    """保存后再读回，值一致"""
+    """保存后再读回，值一致（含按阶段冷却映射）"""
     path = tmp_path / "signal_rules.json"
-    rules = SignalRules(follow_up_stages=["campaign_verify"], cooldown_hours=12)
+    rules = SignalRules(
+        follow_up_stages=["campaign_verify"],
+        cooldown_hours=12,
+        cooldown_map={"campaign_verify": 6},
+    )
     rules.save(path)
     loaded = SignalRules.load(path)
     assert loaded.follow_up_stages == ["campaign_verify"]
     assert loaded.cooldown_hours == 12
+    assert loaded.cooldown_map == {"campaign_verify": 6}
+
+
+def test_invalid_cooldown_map_key_fails():
+    """cooldown_map 的键必须是合法阶段名"""
+    with pytest.raises(ValidationError):
+        SignalRules(cooldown_map={"bogus_stage": 12})
+
+
+def test_cooldown_map_value_must_be_positive():
+    """cooldown_map 的值必须为正小时数"""
+    with pytest.raises(ValidationError):
+        SignalRules(cooldown_map={"campaign_verify": 0})
 
 
 def test_invalid_stage_at_construct_fails():

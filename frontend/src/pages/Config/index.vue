@@ -4,45 +4,73 @@
       <template #header>
         <div class="card-header">
           <span>信号配置</span>
-          <div>
-            <el-button @click="load">刷新</el-button>
-            <el-button type="primary" :loading="saving" @click="save">保存配置</el-button>
-          </div>
+          <span class="mock-tag">前端示例数据</span>
         </div>
       </template>
 
-      <el-form label-width="130px" style="max-width: 720px">
-        <el-form-item label="冷却时长">
-          <el-input-number v-model="form.cooldown_hours" :min="1" :step="1" />
-          <span class="hint">小时 · 同一目标同类型信号在冷却期内不重复产出（PRD §5.5.2）</span>
-        </el-form-item>
+      <el-table :data="rules" border stripe size="default">
+        <el-table-column label="维度" width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.group === 'product'" type="success" size="small">短剧</el-tag>
+            <el-tag v-else type="primary" size="small">广告单元</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="阶段" width="140">
+          <template #default="{ row }">{{ row.label }}</template>
+        </el-table-column>
+        <el-table-column label="阶段标识" min-width="180">
+          <template #default="{ row }">
+            <span class="muted-key">{{ row.key }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="跟投" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.checked" type="success" size="small">✅跟投</el-tag>
+            <el-tag v-else type="info" size="small">⭕不跟投</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="冷却时长（小时）" width="150" align="center">
+          <template #default="{ row }">{{ row.cooldown }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="100" align="center">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
 
-        <el-form-item label="值得跟投的阶段">
-          <div style="width: 100%">
-            <el-checkbox-group v-model="form.follow_up_stages">
-              <div v-for="group in stageGroups" :key="group.dimension" class="stage-group">
-                <div class="group-label">{{ group.label }}</div>
-                <el-checkbox
-                  v-for="s in group.stages"
-                  :key="s.value"
-                  :value="s.value"
-                >{{ s.label }}</el-checkbox>
-              </div>
-            </el-checkbox-group>
-            <div class="hint">命中值得跟投阶段 → 输出 FOLLOW_UP 信号，交由下游 machine-delivery 新建放量任务</div>
-          </div>
+      <p class="hint">打开「跟投开关」的阶段 → 输出 FOLLOW_UP 信号，交由下游 machine-delivery 新建放量任务；冷却时长按阶段独立配置，同一目标同类型信号在各自冷却期内不重复产出。本页为前端示例数据，保存仅作用于当前页面。</p>
+    </el-card>
+
+    <el-dialog v-model="dialogVisible" :title="`编辑 ${editingKey}`" width="380px">
+      <el-form label-width="96px">
+        <el-form-item label="跟投开关">
+          <el-switch
+            v-model="form.checked"
+            active-text="跟投"
+            inactive-text="不跟投"
+            inline-prompt
+          />
+        </el-form-item>
+        <el-form-item label="冷却时长">
+          <el-input-number v-model="form.cooldown" :min="1" :step="1" :disabled="!form.checked" />
+          <span class="unit">小时</span>
         </el-form-item>
       </el-form>
-    </el-card>
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmEdit">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed, onMounted } from 'vue'
+import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-// 后端不可达时兜底展示（与 PRD §5.5.2 默认一致）
-const DEFAULT_RULES = {
+// 前端 mock：不请求后端，页面数据源即此处示例配置（与 PRD §5.5.2 默认一致）
+const MOCK_RULES = {
   follow_up_stages: [
     'product_entry',
     'product_growth',
@@ -51,9 +79,13 @@ const DEFAULT_RULES = {
     'campaign_sustained',
   ],
   cooldown_hours: 24,
+  cooldown_map: {
+    product_entry: 12,
+    campaign_growth: 8,
+  },
 }
 
-const DEFAULT_STAGES: { value: string; label: string }[] = [
+const MOCK_STAGES: { value: string; label: string }[] = [
   { value: 'campaign_observing', label: '待观察' },
   { value: 'campaign_cold_dead', label: '冷死亡' },
   { value: 'campaign_cold_start', label: '冷启动' },
@@ -70,57 +102,51 @@ const DEFAULT_STAGES: { value: string; label: string }[] = [
   { value: 'product_exit', label: '退出期' },
 ]
 
-const form = reactive({ ...DEFAULT_RULES })
-const availableStages = ref<{ value: string; label: string }[]>([])
-const saving = ref(false)
-
-const stageGroups = computed(() => {
-  const groups: { dimension: string; label: string; stages: { value: string; label: string }[] }[] = [
-    { dimension: 'product', label: '商品（短剧）', stages: [] },
-    { dimension: 'campaign', label: '广告单元（Campaign）', stages: [] },
-  ]
-  for (const s of availableStages.value) {
-    const g = s.value.startsWith('product_') ? groups[0] : groups[1]
-    g.stages.push(s)
-  }
-  return groups.filter(g => g.stages.length > 0)
-})
-
-async function load() {
-  try {
-    const res = await fetch('/api/signals/config')
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const data = await res.json()
-    form.follow_up_stages = data.rules.follow_up_stages ?? []
-    form.cooldown_hours = data.rules.cooldown_hours ?? DEFAULT_RULES.cooldown_hours
-    availableStages.value = data.available_stages ?? []
-  } catch {
-    availableStages.value = [...DEFAULT_STAGES]
-    ElMessage.warning('后端未连接，展示示例配置')
-  }
+interface StageRow {
+  kind: 'stage'
+  key: string
+  label: string
+  group: string
+  checked: boolean
+  cooldown: number
 }
 
-async function save() {
-  saving.value = true
-  try {
-    const res = await fetch('/api/signals/config', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        follow_up_stages: [...form.follow_up_stages],
-        cooldown_hours: form.cooldown_hours,
-      }),
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    ElMessage.success('配置已保存，下次 pipeline 运行生效')
-  } catch {
-    ElMessage.error('保存失败，请检查后端服务')
-  } finally {
-    saving.value = false
-  }
+const defaultCooldown = ref(MOCK_RULES.cooldown_hours)
+const rules = ref<StageRow[]>([])
+
+function buildRows(followStages: string[], cooldownMap: Record<string, number>) {
+  const follow = new Set(followStages)
+  rules.value = MOCK_STAGES.map((s) => ({
+    kind: 'stage',
+    key: s.value,
+    label: s.label,
+    group: s.value.startsWith('product_') ? 'product' : 'campaign',
+    checked: follow.has(s.value),
+    cooldown: cooldownMap[s.value] ?? defaultCooldown.value,
+  }))
 }
 
-onMounted(load)
+buildRows(MOCK_RULES.follow_up_stages, MOCK_RULES.cooldown_map)
+
+const dialogVisible = ref(false)
+const editingKey = ref('')
+const form = ref<{ checked: boolean; cooldown: number }>({ checked: false, cooldown: 1 })
+
+function openEdit(row: StageRow) {
+  editingKey.value = row.key
+  form.value = { checked: row.checked, cooldown: row.cooldown }
+  dialogVisible.value = true
+}
+
+function confirmEdit() {
+  const row = rules.value.find((r) => r.key === editingKey.value)
+  if (row) {
+    row.checked = form.value.checked
+    row.cooldown = form.value.cooldown
+  }
+  dialogVisible.value = false
+  ElMessage.success('已保存（前端 mock，未落库）')
+}
 </script>
 
 <style scoped>
@@ -130,25 +156,25 @@ onMounted(load)
   align-items: center;
 }
 
+.mock-tag {
+  color: #909399;
+  font-size: 12px;
+}
+
 .hint {
-  margin-left: 10px;
+  margin-top: 14px;
   color: #909399;
   font-size: 13px;
 }
 
-.stage-group {
-  margin-bottom: 14px;
+.muted-key {
+  color: #909399;
+  font-size: 12px;
 }
 
-.group-label {
+.unit {
+  margin-left: 8px;
+  color: #909399;
   font-size: 13px;
-  font-weight: 600;
-  color: #606266;
-  margin-bottom: 8px;
-}
-
-.stage-group :deep(.el-checkbox) {
-  width: 150px;
-  margin-right: 8px;
 }
 </style>

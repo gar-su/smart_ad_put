@@ -1,3 +1,5 @@
+# 技术架构图
+> 工程侧参考文档。产品需求与判定规则以 `PRD.md` 为源，本文只放架构与契约图。
 ```mermaid
 graph TB
     %% ===== 上游 =====
@@ -17,13 +19,13 @@ graph TB
         direction TB
 
         subgraph agg["聚合"]
-            prod_agg["商品聚合<br/>ROI/成本/语言/近N天序列"]
+            prod_agg["短剧聚合<br/>ROI/成本/语言/近N天序列"]
             cam_agg["Campaign 聚合<br/>分段 ROI"]
         end
 
         subgraph detect["生命周期判定"]
             cam_detector["Campaign 检测器<br/>8阶段 / ROI阈值"]
-            prod_detector["Product 检测器<br/>7阶段 / 趋势指标"]
+            prod_detector["Product 检测器<br/>6阶段 / 趋势指标"]
         end
 
         subgraph signal["建造信号（唯一产出）"]
@@ -114,13 +116,13 @@ graph TB
         subgraph upstream_api["上游需要提供"]
             u1["短剧日数据<br/>data/video_daily/*.json（本期实读）<br/><br/>字段:<br/>- videoId, videoRemark<br/>- videoName, language<br/>- roi, cost, rechargeAmt"]
             u2["Campaign×h 聚合数据<br/>（大数据侧待接入）<br/><br/>字段:<br/>- campaign_id, hour<br/>- cost_h, show_cnt, click_cnt<br/>- d0_order_amt, link_language"]
-            u3["商品按日聚合<br/>（待接入）<br/><br/>字段:<br/>- product_id, date<br/>- cost, order_amt, ad_amt"]
+            u3["短剧按日聚合<br/>（待接入）<br/><br/>字段:<br/>- product_id, date<br/>- cost, order_amt, ad_amt"]
         end
 
         subgraph downstream_api["本系统供给下游"]
             d1["FOLLOW_UP 信号<br/>JSONL 文件 + 查询 API<br/><br/>{<br/>  signal_id, signal_type,<br/>  target_dimension, target_id,<br/>  language_code, timestamp,<br/>  reason, confidence<br/>}"]
             d2["信号查询 API<br/>REST<br/><br/>- /api/signals<br/>- /api/signals/stats<br/>- /api/signals/config"]
-            d3["看板 API<br/>REST<br/><br/>- /api/dashboard/summary"]
+            d3["诊断服务 API<br/>REST<br/><br/>- /api/lifecycle/product/detect<br/>- /api/lifecycle/campaign/detect<br/>- /api/lifecycle/detect/batch"]
         end
     end
 

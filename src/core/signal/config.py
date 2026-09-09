@@ -43,6 +43,9 @@ STAGE_LABELS: dict[str, str] = {
     Stage.PRODUCT_EXIT.value: "退出期",
 }
 
+# 每个阶段各自的默认冷却时长（小时）；未在 cooldown_map 单独覆盖的阶段使用该值
+DEFAULT_COOLDOWN_HOURS: int = 24
+
 
 class SignalRules(BaseModel):
     """信号规则配置（pipeline 与 API 共用的唯一配置源）"""
@@ -51,7 +54,15 @@ class SignalRules(BaseModel):
         default_factory=lambda: list(DEFAULT_FOLLOW_UP_STAGES),
         description="值得跟投（FOLLOW_UP）的生命周期阶段，须为 Stage 合法值",
     )
-    cooldown_hours: int = Field(default=24, gt=0, description="同一目标同类型信号冷却时长（小时）")
+    cooldown_hours: int = Field(
+        default=DEFAULT_COOLDOWN_HOURS,
+        gt=0,
+        description="全局默认冷却时长（小时）；阶段未单独配置 cooldown_map 时使用",
+    )
+    cooldown_map: dict[str, int] = Field(
+        default_factory=dict,
+        description="按阶段的冷却时长覆盖（阶段 → 小时）；仅记录与默认值不同的配置",
+    )
 
     @field_validator("follow_up_stages")
     @classmethod
@@ -59,6 +70,16 @@ class SignalRules(BaseModel):
         """阶段名必须可解析为 Stage，非法名立即失败（fast-fail）"""
         for name in value:
             Stage(name)  # 非法阶段名抛 ValueError → pydantic ValidationError
+        return value
+
+    @field_validator("cooldown_map")
+    @classmethod
+    def _check_cooldown_map(cls, value: dict[str, int]) -> dict[str, int]:
+        """cooldown_map 的键必须是合法阶段，值必须为正小时数"""
+        for name, hours in value.items():
+            Stage(name)
+            if hours <= 0:
+                raise ValueError(f"cooldown_map[{name}] 必须为正小时数，收到 {hours}")
         return value
 
     @classmethod

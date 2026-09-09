@@ -9,7 +9,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Callable
 
-from src.core.lifecycle.stages import LifecycleRecord
+from src.core.lifecycle.stages import LifecycleRecord, Stage
 
 from .mapper import StageSignalMapper
 from .models import BuildSignal, SignalTargetDimension, SignalType
@@ -21,13 +21,21 @@ class BuildSignalGenerator:
     def __init__(
         self,
         cooldown_hours: int = 24,
+        cooldown_map: dict[str, int] | None = None,
         mapper: StageSignalMapper | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
-        self.cooldown = timedelta(hours=cooldown_hours)
+        self.default_cooldown = timedelta(hours=cooldown_hours)
+        self.cooldown_map = {
+            stage: timedelta(hours=h) for stage, h in (cooldown_map or {}).items()
+        }
         self.mapper = mapper or StageSignalMapper()
         self._now = now or (lambda: datetime.now(UTC))
         self._last_sent: dict[tuple[str, SignalType], datetime] = {}
+
+    def _cooldown_for(self, stage: Stage) -> timedelta:
+        """按阶段取冷却时长；未单独配置时回退全局默认"""
+        return self.cooldown_map.get(stage.value, self.default_cooldown)
 
     def generate(
         self,
@@ -45,7 +53,7 @@ class BuildSignalGenerator:
         now = self._now()
         key = (lifecycle.entity_id, signal_type)
         last = self._last_sent.get(key)
-        if last is not None and now - last < self.cooldown:
+        if last is not None and now - last < self._cooldown_for(lifecycle.current_stage):
             return None
 
         signal = BuildSignal(

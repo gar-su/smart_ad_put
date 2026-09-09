@@ -21,7 +21,7 @@
             <span>生命周期分布（基于ROI）</span>
             <el-radio-group v-model="lifecycleDimension" size="small" style="float: right">
               <el-radio-button label="campaign">广告单元</el-radio-button>
-              <el-radio-button label="product">商品</el-radio-button>
+              <el-radio-button label="product">短剧</el-radio-button>
             </el-radio-group>
           </template>
           <el-row :gutter="20">
@@ -47,34 +47,14 @@
       </el-col>
     </el-row>
 
-    <!-- 图表区域 -->
+    <!-- 信号分布 + 摘要 -->
     <el-row :gutter="20" style="margin-top: 20px">
-      <el-col :span="12">
-        <el-card shadow="hover">
-          <template #header>
-            <span>ROI分布</span>
-          </template>
-          <div ref="roiChart" class="chart-container"></div>
-        </el-card>
-      </el-col>
       <el-col :span="12">
         <el-card shadow="hover">
           <template #header>
             <span>今日信号类型分布</span>
           </template>
           <div ref="decisionChart" class="chart-container"></div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <!-- 效率趋势 + 策略摘要 -->
-    <el-row :gutter="20" style="margin-top: 20px">
-      <el-col :span="12">
-        <el-card shadow="hover">
-          <template #header>
-            <span>基建效率趋势（最近7天）</span>
-          </template>
-          <div ref="efficiencyChart" class="chart-container"></div>
         </el-card>
       </el-col>
       <el-col :span="12">
@@ -105,20 +85,16 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import * as echarts from 'echarts'
-import { Goods, Promotion, Clock, Cpu, TrendCharts, Odometer } from '@element-plus/icons-vue'
+import { Goods, Promotion, Clock, Odometer } from '@element-plus/icons-vue'
 
 const lifecycleDimension = ref('campaign')
 const lifecycleChart = ref<HTMLElement>()
-const roiChart = ref<HTMLElement>()
 const decisionChart = ref<HTMLElement>()
-const efficiencyChart = ref<HTMLElement>()
 
 // 统计数据
 const stats = reactive({
   totalProducts: 1147,
   activeCampaigns: 20000,
-  profitabilityRate: 27,
-  automationPlanCount: 68
 })
 
 // 信号统计
@@ -132,11 +108,9 @@ const signalStats = reactive({
 const signalTypeData = [{ name: 'FOLLOW_UP 跟投', count: 42 }]
 
 const statCards = computed(() => [
-  { label: '总商品数', value: stats.totalProducts || 0, color: '#409eff', icon: Goods },
+  { label: '短剧总数', value: stats.totalProducts || 0, color: '#409eff', icon: Goods },
   { label: '活跃广告', value: stats.activeCampaigns || 0, color: '#67c23a', icon: Promotion },
   { label: '今日信号', value: signalStats.todaySignals || 0, color: '#e6a23c', icon: Clock },
-  { label: '盈利率', value: (stats.profitabilityRate || 0) + '%', color: '#f56c6c', icon: Cpu },
-  { label: '自动化基建计划', value: stats.automationPlanCount || 0, color: '#909399', icon: TrendCharts },
   { label: '跟投信号', value: signalStats.followUpSignals || 0, color: '#8e44ad', icon: Odometer },
 ])
 
@@ -194,15 +168,6 @@ const currentStageDefs = computed(() => {
   })
 })
 
-// ROI分布数据
-const roiDistributionData = [
-  { range: 'ROI>40%', count: 5463, color: '#67c23a' },
-  { range: 'ROI 20-40%', count: 3074, color: '#e6a23c' },
-  { range: 'ROI 0-20%', count: 6423, color: '#f56c6c' },
-  { range: 'ROI≤0', count: 5040, color: '#909399' }
-]
-
-
 function initLifecycleChart() {
   if (!lifecycleChart.value) return
 
@@ -254,42 +219,6 @@ function initLifecycleChart() {
   chart.setOption(option)
 }
 
-function initROIChart() {
-  if (!roiChart.value) return
-
-  const chart = echarts.init(roiChart.value)
-
-  const option = {
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-      formatter: '{b}: {c} 个Campaign'
-    },
-    xAxis: {
-      type: 'category',
-      data: roiDistributionData.map(d => d.range)
-    },
-    yAxis: { type: 'value', name: 'Campaign数' },
-    series: [
-      {
-        type: 'bar',
-        data: roiDistributionData.map(d => ({
-          value: d.count,
-          itemStyle: { color: d.color }
-        })),
-        itemStyle: { borderRadius: [4, 4, 0, 0] },
-        label: {
-          show: true,
-          position: 'top',
-          formatter: '{c}'
-        }
-      }
-    ]
-  }
-
-  chart.setOption(option)
-}
-
 function initDecisionChart() {
   if (!decisionChart.value) return
 
@@ -318,55 +247,13 @@ function initDecisionChart() {
   chart.setOption(option)
 }
 
-function initEfficiencyChart() {
-  if (!efficiencyChart.value) return
-
-  const chart = echarts.init(efficiencyChart.value)
-
-  const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-  const decisions = [12, 15, 18, 22, 19, 25, 28]
-  const autoPlanCounts = [8, 11, 14, 17, 15, 20, 22]
-
-  const option = {
-    tooltip: { trigger: 'axis' },
-    legend: {
-      data: ['决策数', '自动化基建计划']
-    },
-    xAxis: { type: 'category', data: days },
-    yAxis: [
-      { type: 'value', name: '决策数', max: 50 },
-      { type: 'value', name: '计划数', min: 0, max: 50 }
-    ],
-    series: [
-      {
-        name: '决策数',
-        type: 'bar',
-        data: decisions,
-        itemStyle: { color: '#409eff' }
-      },
-      {
-        name: '自动化基建计划',
-        type: 'line',
-        yAxisIndex: 1,
-        data: autoPlanCounts,
-        smooth: true,
-        itemStyle: { color: '#67c23a' }
-      }
-    ]
-  }
-
-  chart.setOption(option)
-}
-
 watch(lifecycleDimension, () => {
   initLifecycleChart()
 })
 
 onMounted(() => {
   initLifecycleChart()
-  initROIChart()
   initDecisionChart()
-  initEfficiencyChart()
 })
 </script>
 

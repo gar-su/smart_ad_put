@@ -50,3 +50,32 @@ def test_cooldown_suppresses_repeat():
     # 冷却结束后再次产出
     now = datetime(2026, 8, 30, 12, 0, 0, tzinfo=UTC)
     assert generator.generate(_record(Stage.PRODUCT_ENTRY), language_code="en") is not None
+
+
+def test_per_stage_cooldown_overrides_default():
+    """按阶段配置的冷却时长覆盖全局默认（cooldown_map 优先）"""
+    # 全局默认 24h，product_entry 阶段单独 1h
+    now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=UTC)
+    generator = BuildSignalGenerator(
+        cooldown_hours=24,
+        cooldown_map={"product_entry": 1},
+        now=lambda: now,
+    )
+    # product_entry 用了 1h 冷却：1h 后即可再次产出
+    assert generator.generate(_record(Stage.PRODUCT_ENTRY), language_code="en") is not None
+    assert generator.generate(_record(Stage.PRODUCT_ENTRY), language_code="en") is None
+    now = datetime(2026, 8, 28, 13, 0, 1, tzinfo=UTC)  # 1h +1s
+    assert generator.generate(_record(Stage.PRODUCT_ENTRY), language_code="en") is not None
+
+    # 独立目标走 campaign_growth：未单独配置时回退全局默认 24h
+    now = datetime(2026, 8, 28, 13, 0, 2, tzinfo=UTC)
+    generator2 = BuildSignalGenerator(
+        cooldown_hours=24,
+        cooldown_map={"product_entry": 1},
+        now=lambda: now,
+    )
+    assert generator2.generate(_record(Stage.CAMPAIGN_GROWTH), language_code="en") is not None
+    now = datetime(2026, 8, 29, 12, 0, 0, tzinfo=UTC)  # < 24h 未到默认冷却
+    assert generator2.generate(_record(Stage.CAMPAIGN_GROWTH), language_code="en") is None
+    now = datetime(2026, 8, 29, 13, 0, 3, tzinfo=UTC)  # 24h +1s
+    assert generator2.generate(_record(Stage.CAMPAIGN_GROWTH), language_code="en") is not None

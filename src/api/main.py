@@ -1,5 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from config.settings import settings
 from src.api.routers import dashboard, lifecycle, signals
@@ -18,6 +21,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """请求体不满足契约时统一返回 400（FastAPI 默认 422），便于下游按状态码分流"""
+    return JSONResponse(status_code=400, content={"detail": jsonable_encoder(exc.errors())})
 
 
 @app.get("/health")
