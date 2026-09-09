@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 产品经理 + 数据分析师的工作仓库：**需求文档 + 决策诊断服务**。仓库里没有执行侧代码——系统只输出决策信号，不实际执行投放动作。
 
 - `PRD.md` 是产品行为的唯一源，**只写产品需求、不写技术架构**；技术架构图见 `docs/architecture.md`，判定服务对外契约见 PRD §5.8；`MEMORY.md` 记产品改动沿革
-- `docs/data_contract.md` 是**尚未并入 PRD 的草案**（短剧日数据供给契约）。文末「开放校验点」2 条是待定业务决策，整合 PRD 前须有结论
+- 数据供给需求见 `PRD.md` §6.3（短剧日级 + 广告单元小时级字段基线）；文末「待定决策」2 条是上线前须有结论的业务项
 - `analysis_results/` + `docs/lifecycle-threshold-validation.md` 是 ROI 阈值的数据依据（改阈值前先看这里）
 - `frontend/` 是 PRD §5.1 的「在线原型」，由 `.github/workflows/deploy.yml` 构建部署到 GitHub Pages
 
@@ -65,7 +65,7 @@ logs/decisions/YYYY-MM-DD/decisions.jsonl
 ### 两个必须知道的坑
 
 - **冷却只在单次进程内有效**：`BuildSignalGenerator._last_sent` 是内存字典，`run_pipeline.py` 每次运行都新建生成器，所以重复运行会把同一批信号再追加一遍（实测连跑两次，`decisions.jsonl` 从 42 行变 84 行）。跨进程持久化未实现，`generator.py` 注释里写明「本期不锁实现」。
-- **数据源是 Top50 抽样**：`data/video_daily/*.json` 每日按消耗倒序取前 50，停投/关停的视频会从表中消失，系统无法区分「停投关停」与「漏数」，`cold_dead` / `decline` / `exit` 类判定会失真。契约要求改为「当日有消耗的全量」口径（`docs/data_contract.md` §6）。仓库里现有 8 天数据（2026-04-23 ~ 04-30），只够验证主链路。
+- **数据源是 Top50 抽样**：`data/video_daily/*.json` 每日按消耗倒序取前 50，停投/关停的视频会从表中消失，系统无法区分「停投关停」与「漏数」，`cold_dead` / `decline` / `exit` 类判定会失真。契约要求改为「当日有消耗的全量」口径（PRD §6.3）。仓库里现有 8 天数据（2026-04-23 ~ 04-30），只够验证主链路。
 
 ### API 层 (`src/api/`)
 
@@ -89,7 +89,7 @@ Vue 3 + Vite + TypeScript SPA，Element Plus + ECharts。页面（`frontend/src/
 
 ## 诊断服务交付（给后端部署）
 
-服务边界只到判定：输入实体历史原子事实，输出生命周期阶段。不取数、不生成信号、不落盘。接口契约见 PRD §5.8，数据供给契约见 `docs/data_contract.md`（product 日级 + campaign 小时级）。
+服务边界只到判定：输入实体历史原子事实，输出生命周期阶段。不取数、不生成信号、不落盘。接口契约见 PRD §5.8，数据供给需求见 PRD §6.3（短剧日级 + 广告单元小时级）。
 
 ```bash
 docker build -t smart-ad-put-diagnosis:dev .

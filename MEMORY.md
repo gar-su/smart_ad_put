@@ -63,7 +63,7 @@
 ### 交付件
 - `Dockerfile` + `.dockerignore`（python:3.11-slim + uv，无持久化卷，健康检查 `/health`）
 - 镜像实测：26 项 HTTP 断言全过（含断档 400、批量上限 400、campaign 缺 hour 400）
-- `PRD.md` 新增 §5.8 诊断服务接口契约；`docs/data_contract.md` v1.1 补 campaign 小时级供给
+- `PRD.md` 新增 §5.8 诊断服务接口契约；数据需求并入 §6.3（原 `docs/data_contract.md` 草案全文合并，草案文件已删）
 - **PRD 定位收敛**：剥离技术架构描述（架构图、模块清单、文件路径、运行流程伪代码），PRD 只写产品需求；技术架构图移入 `docs/architecture.md`。仅生命周期诊断对外契约（§5.8）保留字段级约定
 
 ## 待办 / 注意事项
