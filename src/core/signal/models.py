@@ -11,9 +11,10 @@ from pydantic import BaseModel, Field
 
 
 class SignalType(str, Enum):
-    """建造信号类型（本期仅实现 FOLLOW_UP，其余挂起）"""
+    """建造信号类型（本期实现 FOLLOW_UP / ELIMINATE，其余挂起）"""
 
     FOLLOW_UP = "FOLLOW_UP"  # 跟投：目标值得继续投 → 下游新建放量任务
+    ELIMINATE = "ELIMINATE"  # 淘汰：目标不再值得投放 → 下游停投并移除自动化任务
     RECOVER = "RECOVER"  # 恢复：挂起，后续随数据源补齐
     EXPAND = "EXPAND"  # 扩张：挂起
     TEST = "TEST"  # 探索：挂起

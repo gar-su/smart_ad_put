@@ -4,13 +4,14 @@ import pytest
 from pydantic import ValidationError
 
 from src.core.lifecycle.stages import Stage
-from src.core.signal.config import DEFAULT_FOLLOW_UP_STAGES, SignalRules
+from src.core.signal.config import DEFAULT_ELIMINATE_STAGES, DEFAULT_FOLLOW_UP_STAGES, SignalRules
 
 
 def test_load_missing_file_returns_defaults(tmp_path):
     """配置缺失时回退内置默认（PRD §5.5.2）"""
     rules = SignalRules.load(tmp_path / "no_such.json")
     assert rules.follow_up_stages == DEFAULT_FOLLOW_UP_STAGES
+    assert rules.eliminate_stages == DEFAULT_ELIMINATE_STAGES
     assert rules.cooldown_hours == 24
     assert rules.cooldown_map == {}
 
@@ -20,12 +21,14 @@ def test_load_roundtrip(tmp_path):
     path = tmp_path / "signal_rules.json"
     rules = SignalRules(
         follow_up_stages=["campaign_verify"],
+        eliminate_stages=["product_exit"],
         cooldown_hours=12,
         cooldown_map={"campaign_verify": 6},
     )
     rules.save(path)
     loaded = SignalRules.load(path)
     assert loaded.follow_up_stages == ["campaign_verify"]
+    assert loaded.eliminate_stages == ["product_exit"]
     assert loaded.cooldown_hours == 12
     assert loaded.cooldown_map == {"campaign_verify": 6}
 
@@ -46,6 +49,18 @@ def test_invalid_stage_at_construct_fails():
     """非法阶段名不被接受（pydantic 校验快速失败）"""
     with pytest.raises(ValidationError):
         SignalRules(follow_up_stages=["campaign_verify", "bogus_stage"])
+
+
+def test_invalid_eliminate_stage_fails():
+    """淘汰阶段名必须是合法阶段"""
+    with pytest.raises(ValidationError):
+        SignalRules(eliminate_stages=["bogus_stage"])
+
+
+def test_overlapping_stage_lists_fail():
+    """同一阶段不能同时跟投与淘汰"""
+    with pytest.raises(ValidationError):
+        SignalRules(follow_up_stages=["product_entry"], eliminate_stages=["product_entry"])
 
 
 def test_invalid_stage_in_file_fails_on_load(tmp_path):

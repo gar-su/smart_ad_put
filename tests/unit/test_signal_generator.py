@@ -36,9 +36,31 @@ def test_generate_none_for_unconfigured_stage():
 
 def test_custom_mapper_drives_output():
     """外部配置的阶段列表直接决定哪些阶段产出信号"""
-    generator = BuildSignalGenerator(mapper=StageSignalMapper(stages=["campaign_verify"]))
+    generator = BuildSignalGenerator(mapper=StageSignalMapper(follow_up_stages=["campaign_verify"]))
     assert generator.generate(_record(Stage.CAMPAIGN_VERIFY), language_code="zh") is not None
     assert generator.generate(_record(Stage.PRODUCT_ENTRY), language_code="zh") is None
+
+
+def test_generate_emits_eliminate_for_exit_stage():
+    """退出期/衰退期 → 产出 ELIMINATE 信号"""
+    for stage in (Stage.PRODUCT_EXIT, Stage.PRODUCT_DECLINE):
+        generator = BuildSignalGenerator(mapper=StageSignalMapper())
+        signal = generator.generate(_record(stage), language_code="en")
+        assert signal is not None
+        assert signal.signal_type is SignalType.ELIMINATE
+        assert signal.target_id == "vid-1"
+
+
+def test_follow_up_and_eliminate_cooldowns_are_independent():
+    """同目标的跟投与淘汰冷却互不抑制（支持淘汰后重新入池）"""
+    now = datetime(2026, 8, 28, 12, 0, 0, tzinfo=UTC)
+    generator = BuildSignalGenerator(cooldown_hours=24, now=lambda: now)
+    assert generator.generate(_record(Stage.PRODUCT_ENTRY), language_code="en") is not None
+    eliminate = generator.generate(_record(Stage.PRODUCT_EXIT), language_code="en")
+    assert eliminate is not None
+    assert eliminate.signal_type is SignalType.ELIMINATE
+    # 冷却期内同类型仍被抑制
+    assert generator.generate(_record(Stage.PRODUCT_EXIT), language_code="en") is None
 
 
 def test_cooldown_suppresses_repeat():

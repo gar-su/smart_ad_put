@@ -5,11 +5,13 @@
 
 - product 维度：日级记录 → 累计收入/成本 + 每日 ROI 序列
 - campaign 维度：小时级记录 → 0-24h / 24-72h / 72h+ 三段收入与成本
+- material 维度：日级记录 → 活跃日 ROI 序列 + 近 N 日 / CTR 窗口指标
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+from statistics import pstdev
 
 
 class FactValidationError(ValueError):
@@ -35,6 +37,18 @@ class HourlyFact:
     spend: float
     income_order: float
     income_ad: float
+
+
+@dataclass(frozen=True)
+class MaterialFact:
+    """素材的一天原子事实"""
+
+    date: date
+    spend: float
+    income_order: float
+    income_ad: float
+    impressions: int
+    clicks: int
 
 
 @dataclass(frozen=True)
@@ -66,7 +80,29 @@ class CampaignMetrics:
     ad_amt: float
 
 
-def _revenue(fact: DailyFact | HourlyFact) -> float:
+@dataclass(frozen=True)
+class MaterialMetrics:
+    """material 维度判定输入
+
+    只统计活跃日（spend > 0）；零消耗日不进入 ROI 序列。
+    """
+
+    active_days: int
+    total_revenue: float
+    total_cost: float
+    roi_history: list[float]
+    recent_3d_roi: float
+    recent_2d_roi_avg: float
+    recent_2d_cost_ratio: float
+    peak_daily_roi: float
+    recent_2d_ctr: float
+    prior_3d_ctr: float
+    total_roi: float
+    avg_daily_cost: float
+    roi_cv: float
+
+
+def _revenue(fact: DailyFact | HourlyFact | MaterialFact) -> float:
     """收入 = 订单收入 + 广告分成（PRD §7.3）"""
     return fact.income_order + fact.income_ad
 
@@ -148,4 +184,62 @@ def aggregate_campaign(facts: Sequence[HourlyFact]) -> CampaignMetrics:
         cost_72plus=seg_72plus[1],
         order_amt=order_amt,
         ad_amt=ad_amt,
+    )
+
+
+def _ctr(facts: Sequence[MaterialFact]) -> float:
+    """窗口 CTR = 点击 / 曝光；无曝光返回 0"""
+    impressions = sum(f.impressions for f in facts)
+    return sum(f.clicks for f in facts) / impressions if impressions > 0 else 0.0
+
+
+def aggregate_material(facts: Sequence[MaterialFact]) -> MaterialMetrics:
+    """素材日级原子事实 → material 判定输入
+
+    只保留 spend > 0 的活跃日（首投前零消耗日与运行中零消耗日都不参与判定），
+    按日期升序排列；近 N 日 ROI 取窗口内 Σ收入 / Σ消耗。
+    """
+    if not facts:
+        raise FactValidationError("records 为空")
+
+    active = sorted((f for f in facts if f.spend > 0), key=lambda f: f.date)
+    if not active:
+        return MaterialMetrics(
+            active_days=0,
+            total_revenue=0.0,
+            total_cost=0.0,
+            roi_history=[],
+            recent_3d_roi=0.0,
+            recent_2d_roi_avg=0.0,
+            recent_2d_cost_ratio=0.0,
+            peak_daily_roi=0.0,
+            recent_2d_ctr=0.0,
+            prior_3d_ctr=0.0,
+            total_roi=0.0,
+            avg_daily_cost=0.0,
+            roi_cv=0.0,
+        )
+
+    revenues = [_revenue(f) for f in active]
+    costs = [f.spend for f in active]
+    roi_history = [rev / cost for rev, cost in zip(revenues, costs)]
+    total_cost = sum(costs)
+    recent_2 = active[-2:]
+    recent_3 = active[-3:]
+    mean_roi = sum(roi_history) / len(roi_history)
+
+    return MaterialMetrics(
+        active_days=len(active),
+        total_revenue=sum(revenues),
+        total_cost=total_cost,
+        roi_history=roi_history,
+        recent_3d_roi=sum(_revenue(f) for f in recent_3) / sum(f.spend for f in recent_3),
+        recent_2d_roi_avg=sum(roi_history[-2:]) / len(roi_history[-2:]),
+        recent_2d_cost_ratio=sum(f.spend for f in recent_2) / total_cost,
+        peak_daily_roi=max(roi_history),
+        recent_2d_ctr=_ctr(recent_2),
+        prior_3d_ctr=_ctr(active[:-2][-3:]),
+        total_roi=sum(revenues) / total_cost,
+        avg_daily_cost=total_cost / len(active),
+        roi_cv=pstdev(roi_history) / mean_roi if mean_roi > 0 else 0.0,
     )

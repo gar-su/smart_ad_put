@@ -9,12 +9,23 @@
           </div>
           <div>
             <el-select
+              v-model="filterDimension"
+              placeholder="目标维度"
+              clearable
+              style="width: 130px; margin-right: 10px"
+            >
+              <el-option label="短剧" value="product" />
+              <el-option label="广告单元" value="campaign" />
+              <el-option label="素材" value="material" />
+            </el-select>
+            <el-select
               v-model="filterType"
               placeholder="筛选类型"
               clearable
               style="width: 150px; margin-right: 10px"
             >
               <el-option label="跟投信号" value="FOLLOW_UP" />
+              <el-option label="淘汰信号" value="ELIMINATE" />
             </el-select>
             <el-button type="primary" @click="refresh">刷新</el-button>
           </div>
@@ -27,13 +38,16 @@
         <el-table-column prop="signal_type" label="信号类型" width="110">
           <template #default="{ row }">
             <el-tag v-if="row.signal_type === 'FOLLOW_UP'" type="success">跟投信号</el-tag>
+            <el-tag v-else-if="row.signal_type === 'ELIMINATE'" type="danger">淘汰信号</el-tag>
             <el-tag v-else>{{ row.signal_type }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="维度" width="110">
           <template #default="{ row }">
             <el-tag v-if="row.target_dimension === 'product'" type="success" size="small">短剧</el-tag>
-            <el-tag v-else type="primary" size="small">广告单元</el-tag>
+            <el-tag v-else-if="row.target_dimension === 'campaign'" type="primary" size="small">广告单元</el-tag>
+            <el-tag v-else-if="row.target_dimension === 'material'" type="warning" size="small">素材</el-tag>
+            <el-tag v-else type="info" size="small">{{ row.target_dimension }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="target_id" label="目标ID" width="180" show-overflow-tooltip />
@@ -82,6 +96,13 @@ import { QuestionFilled } from '@element-plus/icons-vue'
 
 // 前端 mock：不请求后端，页面数据源即此处示例数据（与 BuildSignal 契约一致）
 const MOCK_SIGNALS = [
+  { signal_id: '20260907162540_007_Shuer_QT_EN_LA274_260608_FF_MYAISC', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '007_Shuer_QT_EN_LA274_260608_FF_MYAISC', language_code: '英语', script_no: 'LA274', shortplay_name: 'Road of Lust', reason: '选品通过: 累计ROI=68.4% > 50%，波动率=0.23 ≤ 0.50，日均消耗=412.0 ≥ 200', confidence: 0.85, timestamp: '2026-09-07T16:25:40Z' },
+  { signal_id: '20260907162318_012_Wuya_QT_KO_LA118_260702_FF_MYAISC', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '012_Wuya_QT_KO_LA118_260702_FF_MYAISC', language_code: '韩语', script_no: 'LA118', shortplay_name: 'Love After the Storm', reason: '选品通过: 累计ROI=57.2% > 50%，波动率=0.41 ≤ 0.50，日均消耗=268.5 ≥ 200', confidence: 0.80, timestamp: '2026-09-07T16:23:18Z' },
+  { signal_id: '20260907162105_021_Jinkui_QT_AR_LA033_260701_FF_MA', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '021_Jinkui_QT_AR_LA033_260701_FF_MA', language_code: '阿拉伯语', script_no: 'LA033', shortplay_name: 'Marry Me, Stranger', reason: '选品通过: 累计ROI=81.6% > 50%，波动率=0.35 ≤ 0.50，日均消耗=503.0 ≥ 200', confidence: 0.85, timestamp: '2026-09-07T16:21:05Z' },
+  { signal_id: '20260907161847_034_Qianmeng_QT_ES_LA199_260703_FF_MA', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '034_Qianmeng_QT_ES_LA199_260703_FF_MA', language_code: '西班牙语', script_no: 'LA199', shortplay_name: "The Mafia's Promise", reason: '选品通过: 累计ROI=63.9% > 50%，波动率=0.18 ≤ 0.50，日均消耗=331.2 ≥ 200', confidence: 0.80, timestamp: '2026-09-07T16:18:47Z' },
+  { signal_id: '20260907162030_1978651069853954049', signal_type: 'ELIMINATE', target_dimension: 'product', target_id: '1978651069853954049', language_code: '韩语', script_no: 'P287', shortplay_name: '你曾是我的亿万星辰（配音）', reason: '衰退期: ROI下降36.7% > 30%', confidence: 0.8, timestamp: '2026-09-07T16:20:30Z' },
+  { signal_id: '20260907161912_1999696621319618562', signal_type: 'ELIMINATE', target_dimension: 'product', target_id: '1999696621319618562', language_code: '韩语', script_no: 'P325', shortplay_name: '刚分手，被美女姐姐拉去领证（配音）', reason: '衰退期: ROI下降37.0% > 30%', confidence: 0.8, timestamp: '2026-09-07T16:19:12Z' },
+  { signal_id: '20260907160105_2046008811200349184', signal_type: 'ELIMINATE', target_dimension: 'product', target_id: '2046008811200349184', language_code: '西班牙语', script_no: 'LA199', shortplay_name: "The Mafia's Promise", reason: '退出期: ROI < 10% 持续5天', confidence: 0.85, timestamp: '2026-09-07T16:01:05Z' },
   { signal_id: '20260907161414_2041056509957242881', signal_type: 'FOLLOW_UP', target_dimension: 'product', target_id: '2041056509957242881', language_code: '马来西亚语', script_no: 'LA011', shortplay_name: 'The Discarded Ace', reason: '成长期: ROI>175.0% 且趋势上升71%', confidence: 0.87, timestamp: '2026-09-07T16:14:14Z' },
   { signal_id: '20260907161246_2039571882456613872', signal_type: 'FOLLOW_UP', target_dimension: 'product', target_id: '2039571882456613872', language_code: '印尼语', script_no: 'LA007', shortplay_name: 'Her Hidden Love', reason: '入场期: 近3天ROI均值>40%', confidence: 0.74, timestamp: '2026-09-07T16:12:46Z' },
   { signal_id: '20260907160802_campaign_108', signal_type: 'FOLLOW_UP', target_dimension: 'campaign', target_id: 'campaign_108_mno208', language_code: '英语', script_no: 'LA103', shortplay_name: 'The Wolf in the Fog', reason: '成长期Campaign: ROI>40% 持续上升', confidence: 0.81, timestamp: '2026-09-07T16:08:02Z' },
@@ -110,13 +131,16 @@ const PAGE_SIZE = 20
 
 const decisions = ref<any[]>([...MOCK_SIGNALS])
 const filterType = ref('')
+const filterDimension = ref('')
 const currentPage = ref(1)
 const detailVisible = ref(false)
 const detailContent = ref('')
 
 const filteredDecisions = computed(() => {
-  if (!filterType.value) return decisions.value
-  return decisions.value.filter((d) => d.signal_type === filterType.value)
+  let rows = decisions.value
+  if (filterType.value) rows = rows.filter((d) => d.signal_type === filterType.value)
+  if (filterDimension.value) rows = rows.filter((d) => d.target_dimension === filterDimension.value)
+  return rows
 })
 
 const total = computed(() => filteredDecisions.value.length)
@@ -126,7 +150,7 @@ const pagedDecisions = computed(() => {
   return filteredDecisions.value.slice(start, start + PAGE_SIZE)
 })
 
-watch(filterType, () => {
+watch([filterType, filterDimension], () => {
   currentPage.value = 1
 })
 

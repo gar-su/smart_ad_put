@@ -1,5 +1,5 @@
 # 技术架构图
-> 工程侧参考文档。产品需求与判定规则以 `PRD.md` 为源，本文只放架构与契约图。
+> 工程侧参考文档。产品需求见 `PRD.md` 与 `docs/` 下的增量需求文档，本文只放架构与契约图。
 ```mermaid
 graph TB
     %% ===== 上游 =====
@@ -28,7 +28,7 @@ graph TB
             prod_detector["Product 检测器<br/>6阶段 / 趋势指标"]
         end
 
-        subgraph signal["建造信号（唯一产出）"]
+        subgraph signal["建造信号"]
             mapper["StageSignalMapper<br/>阶段→信号类型<br/>config/signal_rules.json 注入"]
             generator["BuildSignalGenerator<br/>组装 BuildSignal + 冷却控制"]
         end
@@ -53,11 +53,11 @@ graph TB
 
     %% ===== 下游 =====
     subgraph downstream["下游：决策消费"]
-        machine_delivery["machine-delivery<br/>接收 FOLLOW_UP → 新建放量任务<br/>（对接期不实现）"]
+        machine_delivery["machine-delivery<br/>接收 FOLLOW_UP / ELIMINATE<br/>→ 新建或移除放量任务<br/>（对接期不实现）"]
         frontend["诊断看板 / 决策日志 / 信号配置<br/>Vue3 前端"]
         bi["外部 BI<br/>未来接入"]
 
-        decision_log -->|"FOLLOW_UP 信号"| machine_delivery
+        decision_log -->|"FOLLOW_UP / ELIMINATE 信号"| machine_delivery
         signals_api -->|"REST API"| frontend
         decision_log -->|"JSONL 日志"| bi
     end
@@ -86,11 +86,11 @@ graph LR
     end
 
     subgraph phase4["④ 信号落盘"]
-        decide_step["FOLLOW_UP 信号<br/>写入 logs/decisions/YYYY-MM-DD/decisions.jsonl"]
+        decide_step["FOLLOW_UP / ELIMINATE 信号<br/>写入 logs/decisions/YYYY-MM-DD/decisions.jsonl"]
     end
 
     subgraph phase5["⑤ 下游消费"]
-        machine["machine-delivery<br/>接收信号 → 新建放量任务<br/>（对接期不实现）"]
+        machine["machine-delivery<br/>接收信号 → 新建或移除放量任务<br/>（对接期不实现）"]
         ui["诊断看板<br/>/api/signals 查询"]
     end
 
@@ -120,7 +120,7 @@ graph TB
         end
 
         subgraph downstream_api["本系统供给下游"]
-            d1["FOLLOW_UP 信号<br/>JSONL 文件 + 查询 API<br/><br/>{<br/>  signal_id, signal_type,<br/>  target_dimension, target_id,<br/>  language_code, timestamp,<br/>  reason, confidence<br/>}"]
+            d1["FOLLOW_UP / ELIMINATE 信号<br/>JSONL 文件 + 查询 API<br/><br/>{<br/>  signal_id, signal_type,<br/>  target_dimension, target_id,<br/>  language_code, timestamp,<br/>  reason, confidence<br/>}"]
             d2["信号查询 API<br/>REST<br/><br/>- /api/signals<br/>- /api/signals/stats<br/>- /api/signals/config"]
             d3["诊断服务 API<br/>REST<br/><br/>- /api/lifecycle/product/detect<br/>- /api/lifecycle/campaign/detect<br/>- /api/lifecycle/detect/batch"]
         end

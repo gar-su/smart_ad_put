@@ -15,10 +15,13 @@
 数据集: 0301-0307 和 0315-0321
 """
 
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Protocol
 
-from .stages import Dimension, Stage, LifecycleRecord
+from .aggregation import MaterialFact, MaterialMetrics, aggregate_material
+from .stages import Dimension, LifecycleRecord, Stage
 
 
 class MetricsProvider(Protocol):
@@ -561,76 +564,199 @@ class ProductLifecycleDetector:
 # 素材生命周期检测器
 # =============================================================================
 
+class MaterialThresholds:
+    """素材维度阈值（基于素材日级数据回测标定）"""
+
+    RECENT_2D_ROI_MIN: float = 0.30         # 稳定期要求近2日 ROI 均值
+    RECENT_2D_COST_RATIO_MIN: float = 0.50  # 近2日消耗占比，低于此视为放量停滞
+    ROI_DROP_FROM_PEAK: float = 0.50        # 较峰值 ROI 降幅
+    CTR_DROP: float = 0.20                  # 近2日 CTR 较前3日降幅
+
+    # 选品闸门（A 方案：精确率 73%，约 5.6 条/天）
+    MIN_TOTAL_ROI: float = 0.50             # 累计 ROI 必须高于盈利线才有选品余量
+    MAX_ROI_CV: float = 0.50                # 单日 ROI 波动率上限，过滤一日冲高
+    MIN_AVG_DAILY_COST: float = 200.0       # 日均消耗下限，相当于“已被系统放量验证”
+
+
+@dataclass(frozen=True)
+class MaterialSelectionVerdict:
+    """素材选品结果（生命周期阶段之上的跟投闸门）"""
+
+    selected: bool
+    reason: str
+
+
 class MaterialLifecycleDetector:
     """
-    素材生命周期检测器
+    素材生命周期检测器（互斥分段判定）
 
-    注意: 当前数据中没有素材ID，此检测器基于行业经验设计
+    SEGMENT 0 (< 3 个活跃日):
+      其他                                     → MATERIAL_OBSERVING
+
+    SEGMENT 1 (3-4 个活跃日):
+      近3日ROI < 10%                           → MATERIAL_ELIMINATED
+      近3日ROI > 40% 且 近2日消耗占比 >= 50%    → MATERIAL_ENTRY
+      其他                                     → MATERIAL_OBSERVING
+
+    SEGMENT 2 (>= 5 个活跃日):
+      近3日ROI < 10%                           → MATERIAL_ELIMINATED
+      曾达标 且 (ROI较峰值降>50% 或 CTR较前3日降>20%) → MATERIAL_FATIGUE
+      近3日ROI > 40% 且 近2日ROI均值>=30% 且 近2日消耗占比>=50% → MATERIAL_SUSTAINED
+      其他                                     → MATERIAL_OBSERVING
     """
 
-    def __init__(self):
-        pass
-
-    def detect(
+    def __init__(
         self,
-        days_since_launch: int,
-        ctr_drop_rate: float,
-        impression_frequency: int,
-        ctr: float | None = None,
-    ) -> DetectionResult:
-        """
-        检测素材生命周期阶段
+        roi_thresholds: ROIThresholds | None = None,
+        material_thresholds: MaterialThresholds | None = None,
+    ):
+        self.roi = roi_thresholds or ROIThresholds()
+        self.material = material_thresholds or MaterialThresholds()
 
-        Args:
-            days_since_launch: 上线天数
-            ctr_drop_rate: CTR下降率
-            impression_frequency: 展示频次
-            ctr: 当前CTR
-        """
+    def detect(self, metrics: MaterialMetrics) -> DetectionResult:
+        """检测素材生命周期阶段（输入为聚合后的活跃日指标）"""
 
-        # ========== 淘汰期 ==========
-        if ctr_drop_rate > 0.40 or impression_frequency > 50:
+        # ================================================================
+        # SEGMENT 0: < 3 个活跃日 — 时间不足
+        # ================================================================
+        if metrics.active_days < 3:
             return DetectionResult(
-                stage=Stage.MATERIAL_ELIMINATED,
-                confidence=0.90,
-                reason=f"淘汰期: CTR下降{ctr_drop_rate*100:.1f}% 或频次>{impression_frequency}",
-                metrics={
-                    "ctr_drop_rate": ctr_drop_rate,
-                    "impression_frequency": impression_frequency
-                }
+                stage=Stage.MATERIAL_OBSERVING,
+                confidence=0.50,
+                reason=f"待观察: 活跃投放{metrics.active_days}天 < 3天，时间不足",
+                metrics={"active_days": metrics.active_days, "roi": metrics.recent_3d_roi},
             )
 
-        # ========== 疲劳期 ==========
-        if ctr_drop_rate > 0.20:
+        # ================================================================
+        # SEGMENT 1: 3-4 个活跃日 — 入场判定
+        # ================================================================
+        if metrics.active_days < 5:
+            if metrics.recent_3d_roi < self.roi.ROI_VERY_LOW:
+                return DetectionResult(
+                    stage=Stage.MATERIAL_ELIMINATED,
+                    confidence=0.85,
+                    reason=f"淘汰期: 近3日ROI={metrics.recent_3d_roi * 100:.1f}% < 10%",
+                    metrics={"active_days": metrics.active_days, "recent_3d_roi": metrics.recent_3d_roi},
+                )
+            if (
+                metrics.recent_3d_roi > self.roi.PROFITABLE_ROI
+                and metrics.recent_2d_cost_ratio >= self.material.RECENT_2D_COST_RATIO_MIN
+            ):
+                return DetectionResult(
+                    stage=Stage.MATERIAL_ENTRY,
+                    confidence=0.80,
+                    reason=(
+                        f"入场期: 近3日ROI={metrics.recent_3d_roi * 100:.1f}% > 40%，"
+                        f"近2日消耗占比{metrics.recent_2d_cost_ratio * 100:.0f}%"
+                    ),
+                    metrics={
+                        "active_days": metrics.active_days,
+                        "recent_3d_roi": metrics.recent_3d_roi,
+                        "recent_2d_cost_ratio": metrics.recent_2d_cost_ratio,
+                    },
+                )
+            return DetectionResult(
+                stage=Stage.MATERIAL_OBSERVING,
+                confidence=0.50,
+                reason=f"待观察: 近3日ROI={metrics.recent_3d_roi * 100:.1f}%，未过盈利线或消耗萎缩",
+                metrics={"active_days": metrics.active_days, "recent_3d_roi": metrics.recent_3d_roi},
+            )
+
+        # ================================================================
+        # SEGMENT 2: >= 5 个活跃日 — 持续 / 疲劳 / 淘汰
+        # ================================================================
+
+        # 淘汰: 近3日 ROI < 10%
+        if metrics.recent_3d_roi < self.roi.ROI_VERY_LOW:
+            return DetectionResult(
+                stage=Stage.MATERIAL_ELIMINATED,
+                confidence=0.85,
+                reason=f"淘汰期: 近3日ROI={metrics.recent_3d_roi * 100:.1f}% < 10%",
+                metrics={"active_days": metrics.active_days, "recent_3d_roi": metrics.recent_3d_roi},
+            )
+
+        roi_fatigue = (
+            metrics.peak_daily_roi >= self.roi.PROFITABLE_ROI
+            and metrics.recent_2d_roi_avg
+            < metrics.peak_daily_roi * (1 - self.material.ROI_DROP_FROM_PEAK)
+        )
+        ctr_fatigue = (
+            metrics.prior_3d_ctr > 0
+            and metrics.recent_2d_ctr < metrics.prior_3d_ctr * (1 - self.material.CTR_DROP)
+        )
+        if roi_fatigue or ctr_fatigue:
             return DetectionResult(
                 stage=Stage.MATERIAL_FATIGUE,
                 confidence=0.80,
-                reason=f"疲劳期: CTR下降{ctr_drop_rate*100:.1f}% > 20%",
+                reason=(
+                    f"疲劳期: 峰值ROI={metrics.peak_daily_roi * 100:.1f}%，"
+                    f"近2日ROI均值={metrics.recent_2d_roi_avg * 100:.1f}%，"
+                    f"CTR {metrics.prior_3d_ctr * 100:.2f}% → {metrics.recent_2d_ctr * 100:.2f}%"
+                ),
                 metrics={
-                    "ctr_drop_rate": ctr_drop_rate
-                }
+                    "peak_daily_roi": metrics.peak_daily_roi,
+                    "recent_2d_roi_avg": metrics.recent_2d_roi_avg,
+                    "recent_2d_ctr": metrics.recent_2d_ctr,
+                    "prior_3d_ctr": metrics.prior_3d_ctr,
+                },
             )
 
-        # ========== 黄金期 ==========
-        if ctr is not None and 0.02 <= ctr <= 0.05:
+        # 持续: 近3日 ROI > 40% + 近2日 ROI 均值 >= 30% + 消耗未萎缩
+        if (
+            metrics.recent_3d_roi > self.roi.PROFITABLE_ROI
+            and metrics.recent_2d_roi_avg >= self.material.RECENT_2D_ROI_MIN
+            and metrics.recent_2d_cost_ratio >= self.material.RECENT_2D_COST_RATIO_MIN
+        ):
             return DetectionResult(
-                stage=Stage.MATERIAL_GOLDEN,
+                stage=Stage.MATERIAL_SUSTAINED,
                 confidence=0.85,
-                reason=f"黄金期: CTR {ctr*100:.1f}% (2-5%)",
+                reason=(
+                    f"稳定期: 近3日ROI={metrics.recent_3d_roi * 100:.1f}% > 40%，"
+                    f"近2日ROI均值={metrics.recent_2d_roi_avg * 100:.1f}%"
+                ),
                 metrics={
-                    "ctr": ctr,
-                    "ctr_drop_rate": ctr_drop_rate
-                }
+                    "active_days": metrics.active_days,
+                    "recent_3d_roi": metrics.recent_3d_roi,
+                    "recent_2d_roi_avg": metrics.recent_2d_roi_avg,
+                    "recent_2d_cost_ratio": metrics.recent_2d_cost_ratio,
+                },
             )
 
-        # ========== 新鲜期（默认）==========
         return DetectionResult(
-            stage=Stage.MATERIAL_FRESH,
-            confidence=0.70,
-            reason=f"新鲜期: 投放{days_since_launch}天",
-            metrics={
-                "days_since_launch": days_since_launch
-            }
+            stage=Stage.MATERIAL_OBSERVING,
+            confidence=0.50,
+            reason=f"待观察: 近3日ROI={metrics.recent_3d_roi * 100:.1f}%，趋势未确认",
+            metrics={"active_days": metrics.active_days, "recent_3d_roi": metrics.recent_3d_roi},
+        )
+
+    def select(self, stage: Stage, metrics: MaterialMetrics) -> MaterialSelectionVerdict:
+        """选品闸门：在生命周期阶段之上判断是否值得新建投放
+
+        只有入场期 / 稳定期进入选品；再要求累计 ROI 有余量、ROI 稳定、日均消耗有规模。
+        """
+        if stage not in (Stage.MATERIAL_ENTRY, Stage.MATERIAL_SUSTAINED):
+            return MaterialSelectionVerdict(False, f"不选择: 阶段 {stage.value} 不产跟投信号")
+        if metrics.total_roi <= self.material.MIN_TOTAL_ROI:
+            return MaterialSelectionVerdict(
+                False,
+                f"不选择: 累计ROI={metrics.total_roi * 100:.1f}% ≤ "
+                f"{self.material.MIN_TOTAL_ROI * 100:.0f}%",
+            )
+        if metrics.roi_cv > self.material.MAX_ROI_CV:
+            return MaterialSelectionVerdict(
+                False,
+                f"不选择: ROI波动率={metrics.roi_cv:.2f} > {self.material.MAX_ROI_CV:.2f}",
+            )
+        if metrics.avg_daily_cost < self.material.MIN_AVG_DAILY_COST:
+            return MaterialSelectionVerdict(
+                False,
+                f"不选择: 日均消耗={metrics.avg_daily_cost:.1f} < "
+                f"{self.material.MIN_AVG_DAILY_COST:.0f}",
+            )
+        return MaterialSelectionVerdict(
+            True,
+            f"选择通过: 累计ROI={metrics.total_roi * 100:.1f}% > 50%，"
+            f"波动率={metrics.roi_cv:.2f} ≤ 0.50，日均消耗={metrics.avg_daily_cost:.1f} ≥ 200",
         )
 
 
@@ -719,6 +845,29 @@ class LifecycleDetector:
             current_stage=result.stage,
             stage_entered_at=datetime.utcnow(),
             metrics_snapshot=result.metrics,
+            confidence=result.confidence,
+            detection_reason=result.reason,
+        )
+
+    async def detect_material(
+        self,
+        material_id: str,
+        facts: Sequence[MaterialFact],
+    ) -> LifecycleRecord:
+        """检测素材生命周期（原始日级事实 → 聚合 → 判定 + 选品）"""
+        metrics = aggregate_material(facts)
+        result = self.material_detector.detect(metrics)
+        verdict = self.material_detector.select(result.stage, metrics)
+        snapshot = asdict(metrics)
+        snapshot["selected"] = verdict.selected
+        snapshot["selection_reason"] = verdict.reason
+
+        return LifecycleRecord(
+            dimension=Dimension.MATERIAL,
+            entity_id=material_id,
+            current_stage=result.stage,
+            stage_entered_at=datetime.utcnow(),
+            metrics_snapshot=snapshot,
             confidence=result.confidence,
             detection_reason=result.reason,
         )

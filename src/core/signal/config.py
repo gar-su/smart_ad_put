@@ -12,7 +12,7 @@ import tempfile
 from contextlib import suppress
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.core.lifecycle.stages import Stage
 
@@ -23,6 +23,12 @@ DEFAULT_FOLLOW_UP_STAGES: list[str] = [
     Stage.PRODUCT_SUSTAINED.value,
     Stage.CAMPAIGN_GROWTH.value,
     Stage.CAMPAIGN_SUSTAINED.value,
+]
+
+# 默认淘汰阶段（docs/eliminate-signal-requirements.md §4：退出期/衰退期）
+DEFAULT_ELIMINATE_STAGES: list[str] = [
+    Stage.PRODUCT_EXIT.value,
+    Stage.PRODUCT_DECLINE.value,
 ]
 
 # API 展示用阶段中文名（覆盖 product_*/campaign_*，material 本期无数据不列出）
@@ -54,6 +60,10 @@ class SignalRules(BaseModel):
         default_factory=lambda: list(DEFAULT_FOLLOW_UP_STAGES),
         description="值得跟投（FOLLOW_UP）的生命周期阶段，须为 Stage 合法值",
     )
+    eliminate_stages: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_ELIMINATE_STAGES),
+        description="需要淘汰（ELIMINATE）的生命周期阶段，须为 Stage 合法值",
+    )
     cooldown_hours: int = Field(
         default=DEFAULT_COOLDOWN_HOURS,
         gt=0,
@@ -71,6 +81,22 @@ class SignalRules(BaseModel):
         for name in value:
             Stage(name)  # 非法阶段名抛 ValueError → pydantic ValidationError
         return value
+
+    @field_validator("eliminate_stages")
+    @classmethod
+    def _check_eliminate_stages_valid(cls, value: list[str]) -> list[str]:
+        """淘汰阶段名必须可解析为 Stage"""
+        for name in value:
+            Stage(name)
+        return value
+
+    @model_validator(mode="after")
+    def _check_stage_lists_disjoint(self) -> "SignalRules":
+        """同一阶段不能既跟投又淘汰"""
+        overlap = set(self.follow_up_stages) & set(self.eliminate_stages)
+        if overlap:
+            raise ValueError(f"阶段不能同时配置为跟投与淘汰: {sorted(overlap)}")
+        return self
 
     @field_validator("cooldown_map")
     @classmethod

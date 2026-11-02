@@ -72,7 +72,7 @@ def main() -> None:
     generator = BuildSignalGenerator(
         cooldown_hours=rules.cooldown_hours,
         cooldown_map=rules.cooldown_map,
-        mapper=StageSignalMapper(rules.follow_up_stages),
+        mapper=StageSignalMapper(rules.follow_up_stages, rules.eliminate_stages),
     )
 
     daily_rows = load_daily_rows()

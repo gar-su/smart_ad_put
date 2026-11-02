@@ -22,6 +22,7 @@
             <el-radio-group v-model="lifecycleDimension" size="small" style="float: right">
               <el-radio-button label="campaign">广告单元</el-radio-button>
               <el-radio-button label="product">短剧</el-radio-button>
+              <el-radio-button label="material">素材</el-radio-button>
             </el-radio-group>
           </template>
           <el-row :gutter="20">
@@ -72,6 +73,10 @@
               <span class="value">{{ signalStats.followUpSignals }}</span>
             </div>
             <div class="summary-item">
+              <span class="label">淘汰信号:</span>
+              <span class="value">{{ signalStats.eliminateSignals }}</span>
+            </div>
+            <div class="summary-item">
               <span class="label">本周决策:</span>
               <span class="value">{{ signalStats.decisionsThisWeek }}</span>
             </div>
@@ -85,7 +90,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import * as echarts from 'echarts'
-import { Goods, Promotion, Clock, Odometer } from '@element-plus/icons-vue'
+import { Goods, Promotion, Clock, Odometer, CircleClose, Film } from '@element-plus/icons-vue'
 
 const lifecycleDimension = ref('campaign')
 const lifecycleChart = ref<HTMLElement>()
@@ -95,23 +100,30 @@ const decisionChart = ref<HTMLElement>()
 const stats = reactive({
   totalProducts: 1147,
   activeCampaigns: 20000,
+  activeMaterials: 8642,
 })
 
 // 信号统计
 const signalStats = reactive({
-  todaySignals: 42,
-  decisionsThisWeek: 156,
+  todaySignals: 44,
+  decisionsThisWeek: 158,
   followUpSignals: 42,
+  eliminateSignals: 2,
 })
 
 // 今日信号类型分布
-const signalTypeData = [{ name: 'FOLLOW_UP 跟投', count: 42 }]
+const signalTypeData = [
+  { name: 'FOLLOW_UP 跟投', count: 42, color: '#409eff' },
+  { name: 'ELIMINATE 淘汰', count: 2, color: '#f56c6c' },
+]
 
 const statCards = computed(() => [
   { label: '短剧总数', value: stats.totalProducts || 0, color: '#409eff', icon: Goods },
   { label: '活跃广告', value: stats.activeCampaigns || 0, color: '#67c23a', icon: Promotion },
+  { label: '活跃素材', value: stats.activeMaterials || 0, color: '#00a6a6', icon: Film },
   { label: '今日信号', value: signalStats.todaySignals || 0, color: '#e6a23c', icon: Clock },
   { label: '跟投信号', value: signalStats.followUpSignals || 0, color: '#8e44ad', icon: Odometer },
+  { label: '淘汰信号', value: signalStats.eliminateSignals || 0, color: '#f56c6c', icon: CircleClose },
 ])
 
 // 生命周期数据（饼图用短名称）
@@ -133,6 +145,13 @@ const lifecycleData: Record<string, Record<string, { value: number; name: string
     'product_growth': { value: 0.10, name: '成长期' },
     'product_decline': { value: 0.18, name: '衰退期' },
     'product_exit': { value: 0.25, name: '退出期' },
+  },
+  material: {
+    'material_observing': { value: 0.30, name: '待观察' },
+    'material_entry': { value: 0.22, name: '入场期' },
+    'material_sustained': { value: 0.08, name: '稳定期' },
+    'material_fatigue': { value: 0.20, name: '疲劳期' },
+    'material_eliminated': { value: 0.20, name: '淘汰期' },
   }
 }
 
@@ -155,6 +174,13 @@ const stageDefs: Record<string, { name: string; desc: string; color: string }[]>
     { name: '成长期', desc: 'ROI > 40% 且趋势上升', color: '#00d084' },
     { name: '衰退期', desc: 'ROI下滑 > 30%', color: '#ff6600' },
     { name: '退出期', desc: 'ROI < 10% 持续5天', color: '#f56c6c' },
+  ],
+  material: [
+    { name: '待观察', desc: '活跃投放 < 3天，时间不足', color: '#909399' },
+    { name: '入场期', desc: '近3日ROI > 40% 且近2日消耗占比 ≥ 50%', color: '#67c23a' },
+    { name: '稳定期', desc: '≥5天，近3日ROI > 40% 且近2日ROI均值 ≥ 30%', color: '#409eff' },
+    { name: '疲劳期', desc: '达标后 ROI / CTR 明显下滑', color: '#e6a23c' },
+    { name: '淘汰期', desc: '近3日ROI < 10%', color: '#f56c6c' },
   ]
 }
 
@@ -234,9 +260,8 @@ function initDecisionChart() {
     series: [
       {
         type: 'bar',
-        data: signalTypeData.map(s => s.count),
+        data: signalTypeData.map(s => ({ value: s.count, itemStyle: { color: s.color } })),
         itemStyle: {
-          color: '#409eff',
           borderRadius: [4, 4, 0, 0]
         },
         label: { show: true, position: 'top' }

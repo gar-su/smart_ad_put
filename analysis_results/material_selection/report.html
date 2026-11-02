@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>素材选择策略回测 · 可视化解读</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface-1: #fcfcfb;
+    --surface-2: #f2f1ec;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --good: #0ca30c;
+    --warning: #fab219;
+    --critical: #d03b3b;
+    --tooltip-bg: #0b0b0b;
+    --tooltip-fg: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface-1: #1a1a19;
+      --surface-2: #242423;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --good: #0ca30c;
+      --warning: #fab219;
+      --critical: #d03b3b;
+      --tooltip-bg: #ffffff;
+      --tooltip-fg: #0b0b0b;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface-1: #1a1a19;
+    --surface-2: #242423;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --good: #0ca30c;
+    --warning: #fab219;
+    --critical: #d03b3b;
+    --tooltip-bg: #ffffff;
+    --tooltip-fg: #0b0b0b;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; cursor: pointer; }
+  a { color: var(--series-1); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .viz-root { max-width: 1100px; margin: 0 auto; padding: 40px 32px 64px; }
+
+  .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 32px; }
+  .eyebrow {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+  h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.25; letter-spacing: -0.01em; }
+  .subtitle { margin: 0; color: var(--text-secondary); font-size: 13px; }
+  .ghost-btn {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .ghost-btn:hover { background: var(--surface-2); color: var(--text-primary); }
+
+  section { margin-top: 40px; }
+  h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.3; letter-spacing: -0.01em; }
+  h3 { margin: 0; font-size: 15px; }
+  .section-lead { margin: 0 0 20px; color: var(--text-secondary); max-width: 820px; }
+  .section-kicker {
+    margin: 0 0 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
+
+  .hero-panel {
+    display: grid;
+    grid-template-columns: 0.9fr 1.1fr;
+    gap: 32px;
+    align-items: center;
+    padding: 28px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .hero-figure {
+    font-size: 56px;
+    font-weight: 650;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+  }
+  .hero-label { margin: 6px 0 0; color: var(--text-secondary); }
+  .hero-note { margin: 14px 0 0; font-size: 13px; color: var(--text-secondary); max-width: 420px; }
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .stat-tile {
+    padding: 14px 16px;
+    background: var(--surface-2);
+    border-radius: 8px;
+  }
+  .stat-tile .label { font-size: 12px; color: var(--text-muted); }
+  .stat-tile .value { margin-top: 2px; font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
+  .stat-tile .note { font-size: 12px; color: var(--text-secondary); }
+
+  .tree { display: grid; grid-template-columns: 0.85fr 1.15fr 1.55fr; gap: 14px; align-items: stretch; }
+  .tree-col {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .tree-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .tree-head .days { font-size: 15px; font-weight: 650; }
+  .tree-head .hint { font-size: 11px; color: var(--text-muted); }
+  .rule {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 6px;
+    background: var(--surface-2);
+  }
+  .rule .num {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 11px; font-weight: 650;
+    color: var(--text-secondary);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+  }
+  .rule .cond { font-size: 12.5px; color: var(--text-primary); }
+  .rule .cond .muted { color: var(--text-secondary); }
+  .rule .outcome {
+    margin-top: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+  }
+  .rule .outcome.signal { color: var(--text-primary); font-weight: 600; border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex: none; }
+  .dot.signal { background: var(--good); }
+  .dot.bad { background: var(--critical); }
+  .dot.warn { background: var(--warning); }
+  .tree-foot { margin-top: auto; font-size: 11.5px; color: var(--text-muted); }
+  .tree-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; font-size: 12px; color: var(--text-secondary); }
+  .tree-legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+  .tree-banner {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+    padding: 14px 16px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .tree-banner .step { display: flex; align-items: center; gap: 10px; }
+  .tree-banner .step-no {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--series-1);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    flex: none;
+  }
+  .tree-banner .step strong { display: block; font-size: 14px; }
+  .tree-banner .step small { display: block; color: var(--text-muted); font-size: 11.5px; }
+  .tree-banner .arrow { color: var(--text-muted); font-size: 20px; }
+  .tree-col { border-top: 3px solid var(--series-1); }
+  .tree-col[data-segment="lt3"] { border-top-color: var(--text-muted); }
+  .tree-col[data-segment="gte5"] { border-top-color: var(--good); }
+  .tree-head .days { font-size: 20px; }
+  .tree-head .hint { font-size: 12px; }
+  .rule { border-left: 3px solid var(--border); }
+  .rule.bad-rule { border-left-color: var(--critical); }
+  .rule.warn-rule { border-left-color: var(--warning); }
+  .rule.signal-rule {
+    border-left-color: var(--good);
+    background: color-mix(in srgb, var(--good) 7%, var(--surface-2));
+  }
+  .outcome { padding: 4px 10px; font-size: 12.5px; }
+  .outcome.signal { border-color: color-mix(in srgb, var(--good) 50%, var(--border)); }
+  .outcome.bad { color: var(--text-primary); border-color: color-mix(in srgb, var(--critical) 40%, var(--border)); }
+  .outcome.warn { color: var(--text-primary); border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
+  .enter-gate { display: inline-block; margin-top: 6px; font-size: 11.5px; font-weight: 600; color: var(--good); }
+
+  .gate-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+  .gate-card {
+    position: relative;
+    padding: 16px 16px 14px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .gate-card .gate-no {
+    display: inline-grid;
+    place-items: center;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--series-1);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .gate-card strong { display: block; font-size: 14px; margin-bottom: 4px; }
+  .gate-card p { margin: 0; color: var(--text-secondary); font-size: 12.5px; }
+
+  .callout {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 14px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--warning);
+    background: var(--surface-1);
+  }
+  .callout-icon {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--warning);
+    color: #0b0b0b;
+    font-weight: 700;
+    font-size: 12px;
+    flex: none;
+    margin-top: 1px;
+  }
+  .callout strong { display: block; margin-bottom: 4px; }
+  .callout p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+
+  .filter-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 14px; }
+  .segmented {
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .segmented button {
+    height: 26px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12.5px;
+  }
+  .segmented button:hover { color: var(--text-primary); }
+  .segmented button.active {
+    background: var(--surface-1);
+    color: var(--text-primary);
+    font-weight: 600;
+    box-shadow: 0 0 0 1px var(--border);
+  }
+  .filter-note { font-size: 12px; color: var(--text-muted); }
+
+  .chart-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .chart-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+  .chart-head p { margin: 3px 0 0; font-size: 12px; color: var(--text-secondary); }
+  .legend-inline { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 12px; color: var(--text-secondary); }
+  .legend-inline span { display: inline-flex; align-items: center; gap: 6px; }
+  .key-bar { width: 14px; height: 8px; border-radius: 0 3px 3px 0; background: var(--series-1); }
+  .key-ref { width: 2px; height: 14px; background: var(--text-secondary); opacity: 0.7; }
+  .key-series { width: 10px; height: 10px; border-radius: 50%; }
+  .key-series.s1 { background: var(--series-1); }
+  .key-series.s2 { background: var(--series-2); }
+
+  .metric-chart { position: relative; --label-w: 132px; padding-bottom: 26px; }
+  .grid-layer { position: absolute; top: 0; bottom: 26px; left: var(--label-w); right: 0; pointer-events: none; }
+  .grid-line { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--grid); }
+  .baseline-line {
+    position: absolute;
+    top: 0;
+    bottom: 26px;
+    width: 2px;
+    background: var(--text-secondary);
+    opacity: 0.7;
+    z-index: 3;
+    pointer-events: none;
+  }
+  .baseline-label {
+    position: absolute;
+    top: -17px;
+    transform: translateX(-50%);
+    padding: 0 4px;
+    background: var(--surface-1);
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    z-index: 4;
+  }
+  .axis-ticks { position: absolute; left: var(--label-w); right: 0; bottom: 0; height: 26px; }
+  .axis-tick { position: absolute; transform: translateX(-50%); font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+  .chart-row {
+    display: grid;
+    grid-template-columns: var(--label-w) 1fr;
+    align-items: center;
+    min-height: 44px;
+    position: relative;
+    border-radius: 4px;
+  }
+  .chart-row:hover { background: var(--surface-2); }
+  .row-label { padding-right: 12px; min-width: 0; }
+  .stage-name { display: block; font-size: 13px; font-weight: 600; }
+  .stage-meta { display: block; font-size: 11px; color: var(--text-muted); }
+  .bar-area { position: relative; height: 24px; display: flex; align-items: center; }
+  .bar-fill { height: 18px; border-radius: 0 4px 4px 0; background: var(--series-1); }
+  .bar-fill.s2 { background: var(--series-2); }
+  .bar-value {
+    position: absolute;
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .chart-row.dim .bar-fill { opacity: 0.45; }
+  .group-head {
+    display: grid;
+    grid-template-columns: var(--label-w) 1fr;
+    align-items: end;
+    min-height: 30px;
+    padding-top: 8px;
+  }
+  .group-head .group-name { font-size: 11px; color: var(--text-muted); letter-spacing: 0.04em; }
+
+  .tooltip {
+    position: fixed;
+    z-index: 30;
+    pointer-events: none;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--tooltip-bg);
+    color: var(--tooltip-fg);
+    font-size: 12px;
+    line-height: 1.5;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+    white-space: nowrap;
+  }
+  .tooltip strong { font-weight: 650; }
+
+  details.table-view { margin-top: 12px; }
+  details.table-view summary { cursor: pointer; color: var(--text-secondary); font-size: 12.5px; }
+  details.table-view summary:hover { color: var(--text-primary); }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12.5px; }
+  caption { text-align: left; color: var(--text-muted); font-size: 11.5px; padding-bottom: 6px; }
+  th { text-align: left; font-weight: 500; color: var(--text-muted); padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--grid); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tag {
+    display: inline-block;
+    margin-left: 5px;
+    padding: 0 5px;
+    border-radius: 3px;
+    font-size: 10.5px;
+    color: var(--text-secondary);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    vertical-align: 1px;
+  }
+
+  .signal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .signal-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .signal-card.highlight { border-left: 3px solid var(--series-1); }
+  .signal-card .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .signal-card .cohort { font-size: 12px; color: var(--text-muted); }
+  .signal-card .lift { font-size: 28px; font-weight: 650; letter-spacing: -0.02em; margin-top: 6px; }
+  .signal-card .lift span { font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-left: 4px; }
+  .mini-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin-top: 12px; font-size: 12px; }
+  .mini-metrics .k { color: var(--text-muted); }
+  .mini-metrics .v { text-align: right; font-variant-numeric: tabular-nums; }
+  .signal-note { margin: 10px 0 0; font-size: 12px; color: var(--text-muted); }
+
+  .acceptance { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
+  .check {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 14px 16px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .check-icon {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--good);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    flex: none;
+    margin-top: 1px;
+  }
+  .check .label { font-size: 12px; color: var(--text-muted); }
+  .check .value { font-size: 18px; font-weight: 600; }
+  .check .target { font-size: 11.5px; color: var(--text-secondary); }
+
+  .fine-print { margin: 12px 0 0; font-size: 12.5px; color: var(--text-secondary); }
+  .risk-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+  .risk-list li {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 12px 14px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+  .risk-icon { color: var(--warning); font-weight: 700; flex: none; }
+
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--grid); color: var(--text-muted); font-size: 12px; }
+  footer code { color: var(--text-secondary); font-size: 11.5px; }
+
+  @media (max-width: 860px) {
+    .viz-root { padding: 28px 18px 48px; }
+    .hero-panel { grid-template-columns: 1fr; gap: 22px; }
+    .tree { grid-template-columns: 1fr; }
+    .signal-grid, .acceptance { grid-template-columns: 1fr; }
+    .metric-chart { --label-w: 104px; }
+    .chart-head { flex-direction: column; }
+  }
+  @media (max-width: 520px) {
+    .stat-grid { grid-template-columns: 1fr; }
+    .hero-figure { font-size: 46px; }
+    h1 { font-size: 23px; }
+  }
+</style>
+</head>
+<body>
+<div class="viz-root">
+
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">analysis_results/material_selection/REPORT.md</p>
+      <h1>素材选择策略回测</h1>
+      <p class="subtitle">生命周期规则树 + 选品闸门 · 不用模型 · 2026-06-20 ~ 2026-07-09 · 14,423 条素材</p>
+    </div>
+    <button id="themeToggle" class="ghost-btn" type="button">深色模式</button>
+  </header>
+
+  <section class="hero-panel" aria-labelledby="heroTitle">
+    <div>
+      <p class="section-kicker" id="heroTitle">核心结论 · A 方案选品闸门</p>
+      <div class="hero-figure"><span id="heroValue">73.0%</span></div>
+      <p class="hero-label">留出集选品精确率（未来 ROI ≥ 40%）</p>
+      <p class="hero-note">在原始阶段信号上叠加「累计 ROI &gt; 50% + 波动率 ≤ 0.5 + 日均消耗 ≥ 200」，精确率从 38.4% 提到 73.0%；代价是信号量从 352 条收到 37 条。</p>
+    </div>
+    <div class="stat-grid">
+      <div class="stat-tile">
+        <div class="label">留出集精确率</div>
+        <div class="value">73.0%</div>
+        <div class="note">原始阶段信号 38.4%</div>
+      </div>
+      <div class="stat-tile">
+        <div class="label">闸门通过率</div>
+        <div class="value">8.9%</div>
+        <div class="note">1,252 → 111</div>
+      </div>
+      <div class="stat-tile">
+        <div class="label">入选信号</div>
+        <div class="value">37</div>
+        <div class="note">留出集；全集 111 条</div>
+      </div>
+      <div class="stat-tile">
+        <div class="label">覆盖率</div>
+        <div class="value">3.4%</div>
+        <div class="note">从 31.9% 收紧</div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="treeTitle">
+    <h2 id="treeTitle">决策树：一条素材怎么走到 FOLLOW_UP</h2>
+    <p class="section-lead">先看活跃日，再看近 3 日 ROI 与消耗占比；只有入场期 / 稳定期才会进入下面的三道选品闸门。</p>
+    <div class="tree-banner" aria-hidden="true">
+      <div class="step"><span class="step-no">1</span><div><strong>阶段判定</strong><small>活跃日 + 近 3 日 ROI</small></div></div>
+      <div class="arrow">→</div>
+      <div class="step"><span class="step-no">2</span><div><strong>选品闸门</strong><small>ROI / 波动率 / 日均消耗</small></div></div>
+      <div class="arrow">→</div>
+      <div class="step"><span class="step-no">3</span><div><strong>FOLLOW_UP</strong><small>素材级跟投信号</small></div></div>
+    </div>
+    <div class="tree" id="decisionTree">
+      <div class="tree-col" data-segment="lt3">
+        <div class="tree-head"><span class="days">&lt; 3 天</span><span class="hint">时间不足</span></div>
+        <div class="rule">
+          <div class="num">—</div>
+          <div>
+            <div class="cond">不做判定</div>
+            <span class="outcome"><span class="dot"></span>待观察 · 不产信号</span>
+          </div>
+        </div>
+        <div class="tree-foot">素材刚上线，样本不足以区分好坏。</div>
+      </div>
+
+      <div class="tree-col" data-segment="3to4">
+        <div class="tree-head"><span class="days">3–4 天</span><span class="hint">入场判定</span></div>
+        <div class="rule bad-rule">
+          <div class="num">1</div>
+          <div>
+            <div class="cond">近 3 日 ROI &lt; 10%</div>
+            <span class="outcome bad"><span class="dot bad"></span>淘汰期</span>
+          </div>
+        </div>
+        <div class="rule signal-rule">
+          <div class="num">2</div>
+          <div>
+            <div class="cond">近 3 日 ROI &gt; 40% <span class="muted">且</span> 近 2 日消耗占比 ≥ 50%</div>
+            <span class="outcome signal"><span class="dot signal"></span>入场期 · 产跟投信号</span>
+            <span class="enter-gate">↓ 进入选品闸门</span>
+          </div>
+        </div>
+        <div class="rule">
+          <div class="num">3</div>
+          <div>
+            <div class="cond">其他情况</div>
+            <span class="outcome"><span class="dot"></span>待观察</span>
+          </div>
+        </div>
+        <div class="tree-foot">“消耗占比”防止只看 ROI、不看是否还在放量。</div>
+      </div>
+
+      <div class="tree-col" data-segment="gte5">
+        <div class="tree-head"><span class="days">≥ 5 天</span><span class="hint">持续 / 疲劳 / 淘汰</span></div>
+        <div class="rule bad-rule">
+          <div class="num">1</div>
+          <div>
+            <div class="cond">近 3 日 ROI &lt; 10%</div>
+            <span class="outcome bad"><span class="dot bad"></span>淘汰期</span>
+          </div>
+        </div>
+        <div class="rule warn-rule">
+          <div class="num">2</div>
+          <div>
+            <div class="cond">峰值 ROI ≥ 40% <span class="muted">且</span>（近 2 日 ROI &lt; 峰值 × 50% <span class="muted">或</span> 近 2 日 CTR &lt; 前 3 日 × 80%）</div>
+            <span class="outcome warn"><span class="dot warn"></span>疲劳期</span>
+          </div>
+        </div>
+        <div class="rule signal-rule">
+          <div class="num">3</div>
+          <div>
+            <div class="cond">近 3 日 ROI &gt; 40% <span class="muted">且</span> 近 2 日 ROI 均值 ≥ 30% <span class="muted">且</span> 近 2 日消耗占比 ≥ 50%</div>
+            <span class="outcome signal"><span class="dot signal"></span>稳定期 · 产跟投信号</span>
+            <span class="enter-gate">↓ 进入选品闸门</span>
+          </div>
+        </div>
+        <div class="rule">
+          <div class="num">4</div>
+          <div>
+            <div class="cond">其他情况</div>
+            <span class="outcome"><span class="dot"></span>待观察</span>
+          </div>
+        </div>
+        <div class="tree-foot">当前顺序：淘汰 → 疲劳 → 稳定。审查建议把稳定提到疲劳之前。</div>
+      </div>
+    </div>
+    <div class="tree-legend">
+      <span><span class="dot signal"></span>进入选品闸门 / 产 FOLLOW_UP</span>
+      <span><span class="dot"></span>待观察：不产信号</span>
+      <span><span class="dot warn"></span>疲劳：不产信号</span>
+      <span><span class="dot bad"></span>淘汰：不产信号</span>
+    </div>
+
+    <aside class="callout" id="knownIssue">
+      <div class="callout-icon" aria-hidden="true">!</div>
+      <div>
+        <strong>审查补充：疲劳期会抢占稳定期信号</strong>
+        <p>Day 5 有 98 个素材满足稳定期条件，却被疲劳期先判走；它们的未来达标率 51.0%，反而高于真正进入稳定期的 45.5%。建议把稳定期判定提到疲劳期之前：留出集信号 352 → 366，精确率 38.4% → 38.8%。本次报告仍是按当前顺序回测的结果。</p>
+      </div>
+    </aside>
+  </section>
+
+  <section aria-labelledby="gateTitle">
+    <h2 id="gateTitle">选品闸门：把“过线”变成“值得投”</h2>
+    <p class="section-lead">原始入场 / 稳定信号只要求 ROI &gt; 40%——这是盈利线，不是选品线。A 方案在阶段信号之上再加三道闸门，三关全过才产跟投信号。</p>
+    <div class="gate-grid">
+      <div class="gate-card">
+        <span class="gate-no">1</span>
+        <strong>累计 ROI &gt; 50%</strong>
+        <p>40% 只是不亏钱；50% 以上才有选品余量。</p>
+      </div>
+      <div class="gate-card">
+        <span class="gate-no">2</span>
+        <strong>ROI 波动率 ≤ 0.50</strong>
+        <p>过滤一天冲高、后面回落的素材，避免被单日峰值骗。</p>
+      </div>
+      <div class="gate-card">
+        <span class="gate-no">3</span>
+        <strong>日均消耗 ≥ 200</strong>
+        <p>系统已经用钱投过票；消耗规模是“被验证”的显性信号。</p>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-head">
+        <div>
+          <h3>闸门逐级淘汰</h3>
+          <p id="funnelSub">全集 1,252 条原始阶段信号 → 111 条通过</p>
+        </div>
+        <div class="legend-inline"><span><span class="key-bar"></span>剩余信号</span></div>
+      </div>
+      <div class="metric-chart" id="funnelChart" role="img" aria-label="选品闸门逐级淘汰后的剩余信号数"></div>
+    </div>
+    <details class="table-view">
+      <summary>看数据表</summary>
+      <table id="funnelTable">
+        <caption>A 方案闸门逐级淘汰（全集）</caption>
+        <thead>
+          <tr><th>闸门</th><th class="num">通过</th><th class="num">本关淘汰</th><th class="num">相对原始</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </details>
+  </section>
+
+  <section aria-labelledby="stageTitle">
+    <h2 id="stageTitle">阶段判定本身能到哪一步？</h2>
+    <p class="section-lead">柱子是该阶段素材“未来累计 ROI ≥ 40%”的精确率。阶段能把好素材排出来，但单靠阶段精确率只有 45% 左右——跃升来自上面的选品闸门。</p>
+
+    <div class="filter-row" role="group" aria-label="图表筛选">
+      <div class="segmented" id="dayFilter">
+        <button type="button" data-view="day3" class="active" aria-pressed="true">Day 3</button>
+        <button type="button" data-view="day5" aria-pressed="false">Day 5</button>
+      </div>
+      <div class="segmented" id="datasetFilter">
+        <button type="button" data-dataset="all" class="active" aria-pressed="true">全集</button>
+        <button type="button" data-dataset="holdout" aria-pressed="false">留出集</button>
+      </div>
+      <span class="filter-note">留出集 = 按 material_id 哈希切出的 30%，素材不跨集。</span>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-head">
+        <div>
+          <h3 id="chartTitle">Day 3 · 全集</h3>
+          <p id="chartSub">3,818 个可判定素材</p>
+        </div>
+      </div>
+      <div class="metric-chart" id="stageChart" role="img" aria-label="各生命周期阶段的未来达标精确率"></div>
+    </div>
+
+    <details class="table-view">
+      <summary>看数据表</summary>
+      <table id="stageTable">
+        <caption id="stageCaption">Day 3 · 全集</caption>
+        <thead>
+          <tr><th>阶段</th><th class="num">样本数</th><th class="num">覆盖率</th><th class="num">精确率</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </details>
+  </section>
+
+  <section aria-labelledby="signalTitle">
+    <h2 id="signalTitle">首次信号：原始 vs 闸门后</h2>
+    <p class="section-lead">生产上不会对同一个素材反复建任务，所以回测只取它最早一次进入入场期或稳定期的时点，再看之后的 ROI。下面三张卡是 A 方案闸门后的结果。</p>
+    <div class="signal-grid" id="signalGrid"></div>
+    <p class="signal-note">覆盖率分母是 Day 3 可判定素材（至少 4 个活跃日）。</p>
+
+    <details class="table-view">
+      <summary>原始 vs 闸门后对照</summary>
+      <table id="signalCompareTable">
+        <caption>首次信号：原始阶段信号与 A 方案闸门后（全集 / 留出集）</caption>
+        <thead>
+          <tr><th>口径</th><th class="num">信号数</th><th class="num">覆盖率</th><th class="num">精确率</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </details>
+
+    <div class="acceptance" id="acceptance" aria-label="验收结论"></div>
+  </section>
+
+  <section aria-labelledby="sensTitle">
+    <h2 id="sensTitle">口径敏感性：IAA 算不算，差别很大</h2>
+    <p class="section-lead">合并口径 = 订单充值 + IAA 广告分成；充值口径 = 只看充值。数据里 IAA 占收入 18%，足以改变 9.1% 的未来标签。</p>
+    <div class="chart-card">
+      <div class="legend-inline" style="margin-bottom: 16px;">
+        <span><span class="key-series s1"></span>合并口径</span>
+        <span><span class="key-series s2"></span>充值口径</span>
+        <span class="filter-note">柱高 = 精确率。</span>
+      </div>
+      <div class="metric-chart" id="sensitivityChart" role="img" aria-label="合并口径与充值口径的精确率对比"></div>
+    </div>
+    <p class="fine-print">A 方案闸门后，充值口径的精确率只有 32.0%（全集）/ 37.5%（留出集），远低于合并口径的 73.0%。40% 盈利线原本是在充值口径下标定的，合并口径的含义需按 PRD §6.3 待定决策复核。</p>
+    <details class="table-view">
+      <summary>看数据表</summary>
+      <table id="sensTable">
+        <caption>口径敏感性（原始阶段信号）</caption>
+        <thead>
+          <tr><th>口径 / 观测点</th><th class="num">入选数</th><th class="num">覆盖率</th><th class="num">精确率</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </details>
+    <details class="table-view">
+      <summary>A 方案闸门后的口径对照</summary>
+      <table id="gatedSensTable">
+        <caption>A 方案闸门后：合并口径 vs 充值口径</caption>
+        <thead>
+          <tr><th>口径</th><th class="num">信号数</th><th class="num">覆盖率</th><th class="num">精确率</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </details>
+  </section>
+
+  <section aria-labelledby="riskTitle">
+    <h2 id="riskTitle">边界与风险</h2>
+    <p class="section-lead">这些结论能用来做第一版规则，但还不能当成终局。</p>
+    <ul class="risk-list">
+      <li><span class="risk-icon" aria-hidden="true">⚠</span><span>幸存者偏差：停投素材从数据里消失，未来 ROI 只观测到存活者，标签偏乐观。</span></li>
+      <li><span class="risk-icon" aria-hidden="true">⚠</span><span>单窗口数据：只覆盖 2026-06-20 ~ 2026-07-09，尚未验证时间漂移。</span></li>
+      <li><span class="risk-icon" aria-hidden="true">⚠</span><span>口径待复核：合并口径会抬高未来达标率，40% 线的业务含义需按 PRD §6.3 待定决策确认。</span></li>
+      <li><span class="risk-icon" aria-hidden="true">⚠</span><span>消耗是反馈信号：日均消耗高说明系统已经放量验证过，选出来的是“已被证明”的素材，不是“被低估”的素材。</span></li>
+      <li><span class="risk-icon" aria-hidden="true">⚠</span><span>标签不等于增量：回测标签是现有投放下的未来 ROI，不等于新建放量任务能带来的增量 ROI。</span></li>
+      <li><span class="risk-icon" aria-hidden="true">⚠</span><span>不对比模型：按需求不引入 LightGBM，因此没有与 short-drama-scoring 的模型分数做效果比较。</span></li>
+    </ul>
+  </section>
+
+  <footer>
+    规则树实现：<code>src/core/lifecycle/detector.py</code> · 回测脚本：<code>analysis_results/material_selection_backtest.py</code> · 原始报告：<a href="REPORT.md">REPORT.md</a>
+  </footer>
+</div>
+
+<div id="chartTooltip" class="tooltip" role="tooltip" hidden></div>
+
+<script>
+  const DATA = {
+    day3: {
+      all: {
+        label: "Day 3 · 全集",
+        n: 3818,
+        base: 0.211,
+        stages: [
+          { key: "entry", label: "入场期", n: 1102, cov: 0.289, prec: 0.370, lift: 1.76, signal: true },
+          { key: "observing", label: "待观察", n: 1221, cov: 0.320, prec: 0.224, lift: 1.06, signal: false },
+          { key: "eliminated", label: "淘汰期", n: 1495, cov: 0.392, prec: 0.083, lift: 0.39, signal: false }
+        ]
+      },
+      holdout: {
+        label: "Day 3 · 留出集",
+        n: 1102,
+        base: 0.212,
+        stages: [
+          { key: "entry", label: "入场期", n: 315, cov: 0.286, prec: 0.378, lift: 1.78, signal: true },
+          { key: "observing", label: "待观察", n: 344, cov: 0.312, prec: 0.235, lift: 1.11, signal: false },
+          { key: "eliminated", label: "淘汰期", n: 443, cov: 0.402, prec: 0.077, lift: 0.36, signal: false }
+        ]
+      }
+    },
+    day5: {
+      all: {
+        label: "Day 5 · 全集",
+        n: 2028,
+        base: 0.251,
+        stages: [
+          { key: "sustained", label: "稳定期", n: 101, cov: 0.050, prec: 0.455, lift: 1.81, signal: true },
+          { key: "observing", label: "待观察", n: 349, cov: 0.172, prec: 0.344, lift: 1.37, signal: false },
+          { key: "fatigue", label: "疲劳期", n: 835, cov: 0.412, prec: 0.308, lift: 1.22, signal: false },
+          { key: "eliminated", label: "淘汰期", n: 743, cov: 0.366, prec: 0.117, lift: 0.47, signal: false }
+        ]
+      },
+      holdout: {
+        label: "Day 5 · 留出集",
+        n: 590,
+        base: 0.264,
+        stages: [
+          { key: "sustained", label: "稳定期", n: 22, cov: 0.037, prec: 0.682, lift: 2.58, signal: true },
+          { key: "observing", label: "待观察", n: 114, cov: 0.193, prec: 0.368, lift: 1.39, signal: false },
+          { key: "fatigue", label: "疲劳期", n: 237, cov: 0.402, prec: 0.283, lift: 1.07, signal: false },
+          { key: "eliminated", label: "淘汰期", n: 217, cov: 0.368, prec: 0.147, lift: 0.56, signal: false }
+        ]
+      }
+    }
+  };
+
+  const SIGNALS = [
+    { label: "全集", n: 111, raw: 1252, cov: 0.029, prec: 0.730 },
+    { label: "校准集", n: 74, raw: 900, cov: 0.027, prec: 0.730 },
+    { label: "留出集", n: 37, raw: 352, cov: 0.034, prec: 0.730, highlight: true }
+  ];
+
+  const SIGNAL_COMPARE = [
+    { label: "全集 · 原始阶段信号", n: 1252, cov: 0.328, prec: 0.371 },
+    { label: "全集 · A 方案闸门后", n: 111, cov: 0.029, prec: 0.730 },
+    { label: "留出集 · 原始阶段信号", n: 352, cov: 0.319, prec: 0.384 },
+    { label: "留出集 · A 方案闸门后", n: 37, cov: 0.034, prec: 0.730 },
+    { label: "校准集 · A 方案闸门后", n: 74, cov: 0.027, prec: 0.730 }
+  ];
+
+  const FUNNEL = [
+    { label: "原始阶段信号", n: 1252, cut: 0, note: "入场 / 稳定期" },
+    { label: "ROI > 50%", n: 758, cut: 494, note: "盈利余量" },
+    { label: "波动率 ≤ 0.50", n: 215, cut: 543, note: "过滤一日冲高" },
+    { label: "日均消耗 ≥ 200", n: 111, cut: 104, note: "最终入选", final: true }
+  ];
+
+  const CHECKS = [
+    { label: "留出集精确率", value: "73.0%", target: "目标 ≥ 70%" },
+    { label: "闸门通过率", value: "8.9%", target: "目标 ≥ 5%" },
+    { label: "覆盖率", value: "3.4%", target: "目标 ≥ 2%" }
+  ];
+
+  const SENS = [
+    { group: "Day 3", label: "合并口径", series: "combined", n: 1102, cov: 0.289, prec: 0.370 },
+    { group: "Day 3", label: "充值口径", series: "recharge", n: 823, cov: 0.216, prec: 0.194 },
+    { group: "Day 5", label: "合并口径", series: "combined", n: 101, cov: 0.050, prec: 0.455 },
+    { group: "Day 5", label: "充值口径", series: "recharge", n: 82, cov: 0.040, prec: 0.195 }
+  ];
+
+  const GATED_SENS = [
+    { label: "全集 · 合并口径", n: 111, cov: 0.029, prec: 0.730 },
+    { label: "全集 · 充值口径", n: 50, cov: 0.013, prec: 0.320 },
+    { label: "留出集 · 合并口径", n: 37, cov: 0.034, prec: 0.730 },
+    { label: "留出集 · 充值口径", n: 16, cov: 0.015, prec: 0.375 }
+  ];
+
+  const state = { view: "day3", dataset: "all" };
+
+  const fmtInt = (n) => new Intl.NumberFormat("zh-CN").format(n);
+  const pct = (v) => (v * 100).toFixed(1) + "%";
+
+  const tooltip = document.getElementById("chartTooltip");
+
+  function placeTooltip(event) {
+    const pad = 12;
+    const width = tooltip.offsetWidth || 220;
+    const height = tooltip.offsetHeight || 80;
+    let left = event.clientX + 16;
+    let top = event.clientY + 16;
+    if (left + width + pad > window.innerWidth) left = event.clientX - width - 16;
+    if (top + height + pad > window.innerHeight) top = event.clientY - height - 16;
+    tooltip.style.left = left + "px";
+    tooltip.style.top = top + "px";
+  }
+
+  function showTooltip(event, html) {
+    tooltip.innerHTML = html;
+    tooltip.hidden = false;
+    placeTooltip(event);
+  }
+
+  function hideTooltip() {
+    tooltip.hidden = true;
+  }
+
+  function renderStageChart() {
+    const view = DATA[state.view][state.dataset];
+    const chart = document.getElementById("stageChart");
+    const maxScale = 0.9;
+    const sorted = view.stages;
+    const bestKey = sorted.reduce((a, b) => (b.prec > a.prec ? b : a)).key;
+    const worstKey = sorted.reduce((a, b) => (b.prec < a.prec ? b : a)).key;
+    const ticks = [0, 20, 40, 60, 80];
+
+    let html = '<div class="grid-layer" aria-hidden="true">';
+    ticks.slice(1).forEach((value) => {
+      const left = (value / (maxScale * 100)) * 100;
+      html += '<div class="grid-line" style="left:' + left + '%"></div>';
+    });
+    html += "</div>";
+
+    sorted.forEach((stage) => {
+      const width = (stage.prec / maxScale) * 100;
+      const showLabel = stage.key === bestKey || stage.key === worstKey;
+      const label = showLabel
+        ? '<span class="bar-value" style="left:calc(' + width.toFixed(2) + '% + 8px)">' + pct(stage.prec) + "</span>"
+        : "";
+      html += '<div class="chart-row' + (stage.signal ? "" : " dim") + '" data-stage="' + stage.key +
+        '" data-label="' + stage.label + '" data-n="' + stage.n + '" data-cov="' + stage.cov +
+        '" data-prec="' + stage.prec + '" data-signal="' + stage.signal + '">' +
+        '<div class="row-label"><span class="stage-name">' + stage.label + "</span>" +
+        '<span class="stage-meta">' + (stage.signal ? "产信号" : "不产信号") + " · n=" + fmtInt(stage.n) + "</span></div>" +
+        '<div class="bar-area"><div class="bar-fill" style="width:' + width.toFixed(2) + '%"></div>' + label + "</div></div>";
+    });
+
+    html += '<div class="axis-ticks" aria-hidden="true">';
+    ticks.forEach((value) => {
+      const left = (value / (maxScale * 100)) * 100;
+      html += '<span class="axis-tick" style="left:' + left + '%">' + value + "%</span>";
+    });
+    html += "</div>";
+
+    chart.innerHTML = html;
+    chart.setAttribute("aria-label", view.label + "：各阶段未来达标精确率");
+    document.getElementById("chartTitle").textContent = view.label;
+    document.getElementById("chartSub").textContent = fmtInt(view.n) + " 个可判定素材";
+
+    chart.querySelectorAll(".chart-row").forEach((row) => {
+      row.addEventListener("mouseenter", (event) => {
+        showTooltip(
+          event,
+          "<strong>" + row.dataset.label + "</strong><br>" +
+          "样本 " + fmtInt(Number(row.dataset.n)) + " · 覆盖 " + pct(Number(row.dataset.cov)) + "<br>" +
+          "精确率 " + pct(Number(row.dataset.prec))
+        );
+      });
+      row.addEventListener("mousemove", placeTooltip);
+      row.addEventListener("mouseleave", hideTooltip);
+    });
+
+    renderStageTable(view);
+  }
+
+  function renderStageTable(view) {
+    document.getElementById("stageCaption").textContent = view.label;
+    document.querySelector("#stageTable tbody").innerHTML = view.stages
+      .map(
+        (stage) =>
+          "<tr data-stage=\"" + stage.key + "\"><td>" + stage.label +
+          (stage.signal ? '<span class="tag">产信号</span>' : "") + "</td>" +
+          '<td class="num">' + fmtInt(stage.n) + "</td>" +
+          '<td class="num">' + pct(stage.cov) + "</td>" +
+          '<td class="num">' + pct(stage.prec) + "</td></tr>"
+      )
+      .join("");
+  }
+
+  function renderSignals() {
+    document.getElementById("signalGrid").innerHTML = SIGNALS.map(
+      (item) =>
+        '<div class="signal-card' + (item.highlight ? " highlight" : "") + '" data-cohort="' + item.label + '">' +
+        '<div class="top"><span class="cohort">' + item.label + "</span>" +
+        (item.highlight ? '<span class="tag">重点</span>' : "") + "</div>" +
+        '<div class="lift">' + pct(item.prec) + "<span>精确率</span></div>" +
+        '<div class="mini-metrics">' +
+        '<span class="k">入选信号</span><span class="v">' + fmtInt(item.n) + "</span>" +
+        '<span class="k">原始信号</span><span class="v">' + fmtInt(item.raw) + "</span>" +
+        '<span class="k">覆盖率</span><span class="v">' + pct(item.cov) + "</span>" +
+        '<span class="k">闸门通过率</span><span class="v">' + pct(item.n / item.raw) + "</span>" +
+        "</div></div>"
+    ).join("");
+  }
+
+  function renderSignalCompare() {
+    document.querySelector("#signalCompareTable tbody").innerHTML = SIGNAL_COMPARE.map(
+      (item) =>
+        "<tr><td>" + item.label + "</td>" +
+        '<td class="num">' + fmtInt(item.n) + "</td>" +
+        '<td class="num">' + pct(item.cov) + "</td>" +
+        '<td class="num">' + pct(item.prec) + "</td></tr>"
+    ).join("");
+  }
+
+  function renderFunnel() {
+    const chart = document.getElementById("funnelChart");
+    const maxScale = 1440;
+    const ticks = [0, 300, 600, 900, 1200];
+
+    let html = '<div class="grid-layer" aria-hidden="true">';
+    ticks.slice(1).forEach((value) => {
+      html += '<div class="grid-line" style="left:' + ((value / maxScale) * 100).toFixed(2) + '%"></div>';
+    });
+    html += "</div>";
+
+    FUNNEL.forEach((item) => {
+      const width = (item.n / maxScale) * 100;
+      html += '<div class="chart-row" data-funnel="' + item.label + '" data-n="' + item.n +
+        '" data-cut="' + item.cut + '">' +
+        '<div class="row-label"><span class="stage-name">' + item.label + "</span>" +
+        '<span class="stage-meta">' + item.note + "</span></div>" +
+        '<div class="bar-area"><div class="bar-fill" style="width:' + width.toFixed(2) + '%"></div>' +
+        '<span class="bar-value" style="left:calc(' + width.toFixed(2) + '% + 8px)">' + fmtInt(item.n) +
+        "</span></div></div>";
+    });
+
+    html += '<div class="axis-ticks" aria-hidden="true">';
+    ticks.forEach((value) => {
+      html += '<span class="axis-tick" style="left:' + ((value / maxScale) * 100).toFixed(2) + '%">' +
+        fmtInt(value) + "</span>";
+    });
+    html += "</div>";
+    chart.innerHTML = html;
+
+    chart.querySelectorAll(".chart-row").forEach((row) => {
+      row.addEventListener("mouseenter", (event) => {
+        const cut = Number(row.dataset.cut);
+        showTooltip(
+          event,
+          "<strong>" + row.dataset.funnel + "</strong><br>剩余 " + fmtInt(Number(row.dataset.n)) + " 条" +
+          (cut ? "<br>本关淘汰 " + fmtInt(cut) + " 条" : "")
+        );
+      });
+      row.addEventListener("mousemove", placeTooltip);
+      row.addEventListener("mouseleave", hideTooltip);
+    });
+
+    document.getElementById("funnelSub").textContent =
+      "全集 " + fmtInt(FUNNEL[0].n) + " 条原始阶段信号 → " +
+      fmtInt(FUNNEL[FUNNEL.length - 1].n) + " 条通过";
+
+    document.querySelector("#funnelTable tbody").innerHTML = FUNNEL.map(
+      (item) =>
+        "<tr data-funnel=\"" + item.label + "\"><td>" + item.label +
+        (item.final ? ' <span class="tag">最终入选</span>' : "") + "</td>" +
+        '<td class="num">' + fmtInt(item.n) + "</td>" +
+        '<td class="num">' + (item.cut ? fmtInt(item.cut) : "—") + "</td>" +
+        '<td class="num">' + pct(item.n / FUNNEL[0].n) + "</td></tr>"
+    ).join("");
+  }
+
+  function renderChecks() {
+    document.getElementById("acceptance").innerHTML = CHECKS.map(
+      (item) =>
+        '<div class="check"><div class="check-icon" aria-hidden="true">✓</div><div>' +
+        '<div class="label">' + item.label + '</div><div class="value">' + item.value + "</div>" +
+        '<div class="target">' + item.target + "</div></div></div>"
+    ).join("");
+  }
+
+  function renderSensitivity() {
+    const chart = document.getElementById("sensitivityChart");
+    const maxScale = 1.0;
+    const ticks = [0, 0.25, 0.5, 0.75, 1.0];
+
+    let html = '<div class="grid-layer" aria-hidden="true">';
+    ticks.slice(1).forEach((value) => {
+      const left = (value / maxScale) * 100;
+      html += '<div class="grid-line" style="left:' + left + '%"></div>';
+    });
+    html += "</div>";
+
+    let currentGroup = null;
+    SENS.forEach((item) => {
+      if (item.group !== currentGroup) {
+        currentGroup = item.group;
+        html += '<div class="group-head" data-group="' + item.group + '"><span class="group-name">' +
+          item.group + "</span><span></span></div>";
+      }
+      const width = (item.prec / maxScale) * 100;
+      const seriesClass = item.series === "recharge" ? " s2" : "";
+      html += '<div class="chart-row" data-series="' + item.series + '" data-group="' + item.group +
+        '" data-label="' + item.label + '" data-n="' + item.n + '" data-cov="' + item.cov +
+        '" data-prec="' + item.prec + '">' +
+        '<div class="row-label"><span class="stage-name">' + item.label + "</span>" +
+        '<span class="stage-meta">n=' + fmtInt(item.n) + "</span></div>" +
+        '<div class="bar-area"><div class="bar-fill' + seriesClass + '" style="width:' + width.toFixed(2) + '%"></div>' +
+        '<span class="bar-value" style="left:calc(' + width.toFixed(2) + '% + 8px)">' + pct(item.prec) + "</span></div></div>";
+    });
+
+    html += '<div class="axis-ticks" aria-hidden="true">';
+    ticks.forEach((value) => {
+      const left = (value / maxScale) * 100;
+      html += '<span class="axis-tick" style="left:' + left + '%">' + pct(value) + "</span>";
+    });
+    html += "</div>";
+
+    chart.innerHTML = html;
+    chart.querySelectorAll(".chart-row").forEach((row) => {
+      row.addEventListener("mouseenter", (event) => {
+        showTooltip(
+          event,
+          "<strong>" + row.dataset.group + " · " + row.dataset.label + "</strong><br>" +
+          "入选 " + fmtInt(Number(row.dataset.n)) + " · 覆盖 " + pct(Number(row.dataset.cov)) + "<br>" +
+          "精确率 " + pct(Number(row.dataset.prec))
+        );
+      });
+      row.addEventListener("mousemove", placeTooltip);
+      row.addEventListener("mouseleave", hideTooltip);
+    });
+
+    document.querySelector("#sensTable tbody").innerHTML = SENS.map(
+      (item) =>
+        "<tr data-series=\"" + item.series + "\"><td>" + item.group + " · " + item.label + "</td>" +
+        '<td class="num">' + fmtInt(item.n) + "</td>" +
+        '<td class="num">' + pct(item.cov) + "</td>" +
+        '<td class="num">' + pct(item.prec) + "</td></tr>"
+    ).join("");
+
+    document.querySelector("#gatedSensTable tbody").innerHTML = GATED_SENS.map(
+      (item) =>
+        "<tr><td>" + item.label + "</td>" +
+        '<td class="num">' + fmtInt(item.n) + "</td>" +
+        '<td class="num">' + pct(item.cov) + "</td>" +
+        '<td class="num">' + pct(item.prec) + "</td></tr>"
+    ).join("");
+  }
+
+  function syncFilters() {
+    document.querySelectorAll("#dayFilter button").forEach((button) => {
+      const active = button.dataset.view === state.view;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    document.querySelectorAll("#datasetFilter button").forEach((button) => {
+      const active = button.dataset.dataset === state.dataset;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+  }
+
+  document.querySelectorAll("#dayFilter button").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.view = button.dataset.view;
+      syncFilters();
+      renderStageChart();
+    });
+  });
+
+  document.querySelectorAll("#datasetFilter button").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.dataset = button.dataset.dataset;
+      syncFilters();
+      renderStageChart();
+    });
+  });
+
+  document.getElementById("themeToggle").addEventListener("click", () => {
+    const root = document.documentElement;
+    const next = root.dataset.theme === "dark" ? "light" : "dark";
+    root.dataset.theme = next;
+    document.getElementById("themeToggle").textContent = next === "dark" ? "浅色模式" : "深色模式";
+  });
+
+  renderStageChart();
+  renderSignals();
+  renderSignalCompare();
+  renderFunnel();
+  renderChecks();
+  renderSensitivity();
+</script>
+</body>
+</html>

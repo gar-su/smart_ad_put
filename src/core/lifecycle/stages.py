@@ -12,15 +12,16 @@
 参考: docs/lifecycle-threshold-validation.md
 """
 
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+
 from pydantic import BaseModel
 
 
 class Dimension(str, Enum):
     """生命周期维度"""
     PRODUCT = "product"       # 商品维度（短剧）
-    MATERIAL = "material"     # 素材维度（暂无数据支撑）
+    MATERIAL = "material"     # 素材维度（日级数据供给见 §6.3）
     CAMPAIGN = "campaign"   # 广告单元维度（campaign）
 
 
@@ -59,11 +60,13 @@ class Stage(str, Enum):
     PRODUCT_DECLINE = "product_decline"           # 衰退：ROI持续下滑 > 30%
     PRODUCT_EXIT = "product_exit"                 # 退出：ROI < 10% 持续 5天
 
-    # ========== 素材维度（暂无数据支撑，基于行业经验）==========
-    MATERIAL_FRESH = "material_fresh"               # 新鲜期
-    MATERIAL_GOLDEN = "material_golden"             # 黄金期
-    MATERIAL_FATIGUE = "material_fatigue"          # 疲劳期
-    MATERIAL_ELIMINATED = "material_eliminated"     # 淘汰期
+    # ========== 素材维度 ==========
+    # 基于素材日级数据回测的阈值：近3日ROI>40% 入场，近3日ROI<10% 淘汰
+    MATERIAL_OBSERVING = "material_observing"       # 待观察：活跃投放 < 3 天
+    MATERIAL_ENTRY = "material_entry"               # 入场期：3-4 天，近3日ROI > 40% 且消耗未萎缩
+    MATERIAL_SUSTAINED = "material_sustained"       # 稳定期：5天+，近3日ROI > 40%
+    MATERIAL_FATIGUE = "material_fatigue"           # 疲劳期：达标后 ROI / CTR 明显下滑
+    MATERIAL_ELIMINATED = "material_eliminated"     # 淘汰期：近3日ROI < 10%
 
 
 class LifecycleRecord(BaseModel):

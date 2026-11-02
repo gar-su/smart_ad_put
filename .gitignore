@@ -55,3 +55,6 @@ data_pages/
 shortplay_daily_data.json
 fetch_and_store.py
 fetch_shortplay_data.py
+
+# 镜像交付件（本地生成，不入库）
+*.tar
