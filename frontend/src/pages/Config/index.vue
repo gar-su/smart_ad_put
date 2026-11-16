@@ -44,6 +44,39 @@
       <p class="hint">选择「跟投」的阶段 → 输出 FOLLOW_UP 信号，交由下游 machine-delivery 新建放量任务；选择「淘汰」的阶段 → 输出 ELIMINATE 信号，下游停投并移除任务。同一阶段只能二选一；冷却时长按阶段独立配置，同一目标同类型信号在各自冷却期内不重复产出。素材阶段已纳入配置范围；本页为前端示例数据，保存仅作用于当前页面。</p>
     </el-card>
 
+    <el-card style="margin-top: 20px">
+      <template #header>
+        <div class="card-header">
+          <div class="title-group">
+            <span>LTV 选品参数</span>
+            <el-tag type="warning" size="small">待回测</el-tag>
+          </div>
+          <span class="mock-tag">前端示例数据</span>
+        </div>
+      </template>
+
+      <el-alert
+        title="以下参数为候选值，回测完成前不生效；本页仅展示，不提供编辑。"
+        type="warning"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 14px"
+      />
+
+      <el-table :data="ltvParams" border stripe size="default" class="ltv-param-table">
+        <el-table-column prop="name" label="参数" width="180" />
+        <el-table-column prop="value" label="候选值" width="200" />
+        <el-table-column prop="desc" label="说明" min-width="260" />
+        <el-table-column label="状态" width="110" align="center">
+          <template #default>
+            <el-tag type="warning" size="small">待回测</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <p class="hint">阶段命名、阶段数量与是否需要观察期同样待回测确定，本版不提供 LTV 阶段开关。信号类型：仅 FOLLOW_UP；是否产 ELIMINATE 待回测后确认。</p>
+    </el-card>
+
     <el-dialog v-model="dialogVisible" :title="`编辑 ${editingKey}`" width="380px">
       <el-form label-width="96px">
         <el-form-item label="信号类型">
@@ -109,6 +142,20 @@ const MOCK_STAGES: { value: string; label: string }[] = [
   { value: 'material_sustained', label: '稳定期' },
   { value: 'material_fatigue', label: '疲劳期' },
   { value: 'material_eliminated', label: '淘汰期' },
+]
+
+// LTV 选品参数（候选值，回测后确定；本页只展示，不提供编辑）
+const ltvParams = [
+  { name: '盈利线阈值 θ', value: '40%（候选）', desc: '点估计预测 ROI 的入选阈值' },
+  { name: '活跃窗口 N', value: '7 天（候选）', desc: '目标近 N 日有消耗才参与判定' },
+  { name: '最小样本 n_min', value: '30（候选）', desc: '目标下已归因用户数下限' },
+  {
+    name: '消耗窗口',
+    value: '全部历史累计（候选）',
+    desc: '回测对比全部历史 / 近 90 天 / 与 LTV 周期对齐三种口径',
+  },
+  { name: '阶段定义', value: '待回测', desc: '阶段命名、数量与是否需要观察期' },
+  { name: '信号类型', value: '仅 FOLLOW_UP', desc: '是否产 ELIMINATE 待回测后确认' },
 ]
 
 type SignalType = '' | 'FOLLOW_UP' | 'ELIMINATE'
@@ -196,5 +243,11 @@ function confirmEdit() {
   margin-left: 8px;
   color: #909399;
   font-size: 13px;
+}
+
+.title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 </style>

@@ -13,6 +13,32 @@
       </el-card>
     </div>
 
+    <!-- LTV 选品概览 -->
+    <el-row :gutter="20" style="margin-top: 20px">
+      <el-col :span="24">
+        <el-card shadow="hover">
+          <template #header>
+            <div class="ltv-header">
+              <span>LTV 选品概览（基于预测 LTV）</span>
+              <span class="mock-tag">前端示例数据 · 闸门待回测</span>
+            </div>
+          </template>
+          <div class="stat-row">
+            <el-card v-for="card in ltvCards" :key="card.label" shadow="never" class="stat-card ltv-stat-card">
+              <div class="stat-icon" :style="{ background: card.color }">
+                <el-icon><component :is="card.icon" /></el-icon>
+              </div>
+              <div class="stat-content">
+                <div class="stat-value">{{ card.value }}</div>
+                <div class="stat-label">{{ card.label }}</div>
+              </div>
+            </el-card>
+          </div>
+          <div ref="ltvChart" class="chart-container ltv-chart"></div>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <!-- 生命周期分布（全宽） -->
     <el-row :gutter="20" style="margin-top: 20px">
       <el-col :span="24">
@@ -90,11 +116,12 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import * as echarts from 'echarts'
-import { Goods, Promotion, Clock, Odometer, CircleClose, Film } from '@element-plus/icons-vue'
+import { Goods, Promotion, Clock, Odometer, CircleClose, Film, TrendCharts, PieChart, Connection, DataAnalysis } from '@element-plus/icons-vue'
 
 const lifecycleDimension = ref('campaign')
 const lifecycleChart = ref<HTMLElement>()
 const decisionChart = ref<HTMLElement>()
+const ltvChart = ref<HTMLElement>()
 
 // 统计数据
 const stats = reactive({
@@ -115,6 +142,27 @@ const signalStats = reactive({
 const signalTypeData = [
   { name: 'FOLLOW_UP 跟投', count: 42, color: '#409eff' },
   { name: 'ELIMINATE 淘汰', count: 2, color: '#f56c6c' },
+]
+
+// LTV 选品概览（前端示例数据，闸门参数待回测）
+const ltvStats = reactive({
+  signals: 18,
+  avgPredictedRoi: '63.5%',
+  attributionCoverage: '93.2%',
+  ltvCoverage: '95.1%',
+})
+
+const ltvCards = computed(() => [
+  { label: 'LTV 入选信号', value: ltvStats.signals, color: '#8e44ad', icon: TrendCharts },
+  { label: '平均预测 ROI', value: ltvStats.avgPredictedRoi, color: '#409eff', icon: PieChart },
+  { label: '归因覆盖率', value: ltvStats.attributionCoverage, color: '#67c23a', icon: Connection },
+  { label: 'LTV 覆盖率', value: ltvStats.ltvCoverage, color: '#00a6a6', icon: DataAnalysis },
+])
+
+const ltvDimensionData = [
+  { name: '短剧', count: 7, color: '#409eff' },
+  { name: '素材', count: 8, color: '#e6a23c' },
+  { name: '广告单元', count: 3, color: '#67c23a' },
 ]
 
 const statCards = computed(() => [
@@ -272,6 +320,35 @@ function initDecisionChart() {
   chart.setOption(option)
 }
 
+function initLtvChart() {
+  if (!ltvChart.value) return
+
+  const chart = echarts.init(ltvChart.value)
+
+  const option = {
+    tooltip: { trigger: 'axis' },
+    grid: { top: 40, left: 50, right: 30, bottom: 30 },
+    xAxis: {
+      type: 'category',
+      data: ltvDimensionData.map(d => d.name)
+    },
+    yAxis: { type: 'value', name: '入选信号数' },
+    series: [
+      {
+        type: 'bar',
+        barWidth: 48,
+        data: ltvDimensionData.map(d => ({ value: d.count, itemStyle: { color: d.color } })),
+        itemStyle: {
+          borderRadius: [4, 4, 0, 0]
+        },
+        label: { show: true, position: 'top' }
+      }
+    ]
+  }
+
+  chart.setOption(option)
+}
+
 watch(lifecycleDimension, () => {
   initLifecycleChart()
 })
@@ -279,6 +356,7 @@ watch(lifecycleDimension, () => {
 onMounted(() => {
   initLifecycleChart()
   initDecisionChart()
+  initLtvChart()
 })
 </script>
 
@@ -369,5 +447,30 @@ onMounted(() => {
 .summary-item .value {
   font-weight: 500;
   color: #303133;
+}
+
+.ltv-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mock-tag {
+  color: #909399;
+  font-size: 12px;
+}
+
+.ltv-stat-card {
+  box-shadow: none;
+  border: 1px solid #ebeef5;
+}
+
+.ltv-stat-card .stat-value {
+  font-size: 24px;
+}
+
+.ltv-chart {
+  height: 260px;
+  margin-top: 16px;
 }
 </style>

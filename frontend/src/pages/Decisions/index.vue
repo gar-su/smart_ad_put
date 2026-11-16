@@ -9,6 +9,15 @@
           </div>
           <div>
             <el-select
+              v-model="filterSource"
+              placeholder="链路来源"
+              clearable
+              style="width: 120px; margin-right: 10px"
+            >
+              <el-option label="ROI 链" value="roi" />
+              <el-option label="LTV 链" value="ltv" />
+            </el-select>
+            <el-select
               v-model="filterDimension"
               placeholder="目标维度"
               clearable
@@ -42,6 +51,12 @@
             <el-tag v-else>{{ row.signal_type }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="链路来源" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="sourceOf(row) === 'ltv'" type="warning" size="small">LTV 链</el-tag>
+            <el-tag v-else type="info" size="small">ROI 链</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="维度" width="110">
           <template #default="{ row }">
             <el-tag v-if="row.target_dimension === 'product'" type="success" size="small">短剧</el-tag>
@@ -51,6 +66,24 @@
           </template>
         </el-table-column>
         <el-table-column prop="target_id" label="目标ID" width="180" show-overflow-tooltip />
+        <el-table-column label="预测ROI" width="100" align="right">
+          <template #default="{ row }">
+            <span v-if="row.ltv_metrics">{{ (row.ltv_metrics.predicted_roi * 100).toFixed(1) }}%</span>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="用户数" width="90" align="right">
+          <template #default="{ row }">
+            <span v-if="row.ltv_metrics">{{ row.ltv_metrics.users }}</span>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="覆盖率(归因/LTV)" width="150" align="center">
+          <template #default="{ row }">
+            <span v-if="row.ltv_metrics">{{ (row.ltv_metrics.attribution_coverage * 100).toFixed(1) }}% / {{ (row.ltv_metrics.ltv_coverage * 100).toFixed(1) }}%</span>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="shortplay_name" label="短剧名" min-width="140" show-overflow-tooltip />
         <el-table-column label="语言/剧本" width="150">
           <template #default="{ row }">
@@ -83,8 +116,28 @@
       />
     </el-card>
 
-    <el-dialog v-model="detailVisible" title="信号详情" width="600px">
-      <pre>{{ detailContent }}</pre>
+    <el-dialog v-model="detailVisible" title="信号详情" width="640px">
+      <template v-if="detailRow?.ltv_metrics">
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="链路来源">LTV 链</el-descriptions-item>
+          <el-descriptions-item label="信号类型">{{ detailRow.signal_type }}</el-descriptions-item>
+          <el-descriptions-item label="目标维度">{{ detailRow.target_dimension }}</el-descriptions-item>
+          <el-descriptions-item label="目标ID">{{ detailRow.target_id }}</el-descriptions-item>
+          <el-descriptions-item label="点估计预测 ROI">{{ (detailRow.ltv_metrics.predicted_roi * 100).toFixed(1) }}%</el-descriptions-item>
+          <el-descriptions-item label="已归因用户数">{{ detailRow.ltv_metrics.users }}</el-descriptions-item>
+          <el-descriptions-item label="累计消耗">{{ detailRow.ltv_metrics.spend }}</el-descriptions-item>
+          <el-descriptions-item label="归因覆盖率">{{ (detailRow.ltv_metrics.attribution_coverage * 100).toFixed(1) }}%</el-descriptions-item>
+          <el-descriptions-item label="LTV 覆盖率">{{ (detailRow.ltv_metrics.ltv_coverage * 100).toFixed(1) }}%</el-descriptions-item>
+          <el-descriptions-item label="预测周期">D{{ detailRow.ltv_metrics.horizon_days }}</el-descriptions-item>
+          <el-descriptions-item label="快照日期">{{ detailRow.ltv_metrics.snapshot_date }}</el-descriptions-item>
+          <el-descriptions-item label="模型版本">{{ detailRow.ltv_metrics.model_version }}</el-descriptions-item>
+          <el-descriptions-item label="语言 / 剧本">{{ detailRow.language_code || '-' }} / {{ detailRow.script_no || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="短剧名" :span="2"><span class="shortplay-name">{{ detailRow.shortplay_name || '-' }}</span></el-descriptions-item>
+          <el-descriptions-item label="置信度"><span class="confidence-note">{{ (Number(detailRow.confidence) * 100).toFixed(0) }}%（占位，非概率）</span></el-descriptions-item>
+          <el-descriptions-item label="原因" :span="2"><span class="ltv-reason">{{ detailRow.reason }}</span></el-descriptions-item>
+        </el-descriptions>
+      </template>
+      <pre v-else>{{ detailContent }}</pre>
     </el-dialog>
   </div>
 </template>
@@ -96,6 +149,10 @@ import { QuestionFilled } from '@element-plus/icons-vue'
 
 // 前端 mock：不请求后端，页面数据源即此处示例数据（与 BuildSignal 契约一致）
 const MOCK_SIGNALS = [
+  { signal_id: '20260907163012_007_Shuer_QT_EN_LA274_260608_FF_MYAISC', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '007_Shuer_QT_EN_LA274_260608_FF_MYAISC', language_code: '英语', script_no: 'LA274', shortplay_name: 'Road of Lust', reason: 'LTV选品通过: 预测ROI=72.4%，用户=186，累计消耗=1,240，归因覆盖率=94.1%，LTV覆盖率=96.2%，horizon=90，快照=2026-09-07，模型=v2.3', confidence: 0.70, timestamp: '2026-09-07T16:30:12Z', ltv_metrics: { predicted_roi: 0.724, users: 186, spend: 1240, attribution_coverage: 0.941, ltv_coverage: 0.962, horizon_days: 90, snapshot_date: '2026-09-07', model_version: 'v2.3' } },
+  { signal_id: '20260907162845_012_Wuya_QT_KO_LA118_260702_FF_MYAISC', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '012_Wuya_QT_KO_LA118_260702_FF_MYAISC', language_code: '韩语', script_no: 'LA118', shortplay_name: 'Love After the Storm', reason: 'LTV选品通过: 预测ROI=65.8%，用户=142，累计消耗=980，归因覆盖率=93.2%，LTV覆盖率=95.1%，horizon=90，快照=2026-09-07，模型=v2.3', confidence: 0.70, timestamp: '2026-09-07T16:28:45Z', ltv_metrics: { predicted_roi: 0.658, users: 142, spend: 980, attribution_coverage: 0.932, ltv_coverage: 0.951, horizon_days: 90, snapshot_date: '2026-09-07', model_version: 'v2.3' } },
+  { signal_id: '20260907162610_2046008811200349184', signal_type: 'FOLLOW_UP', target_dimension: 'product', target_id: '2046008811200349184', language_code: '西班牙语', script_no: 'LA199', shortplay_name: "The Mafia's Promise", reason: 'LTV选品通过: 预测ROI=81.1%，用户=324，累计消耗=2,860，归因覆盖率=94.5%，LTV覆盖率=96.8%，horizon=90，快照=2026-09-07，模型=v2.3', confidence: 0.70, timestamp: '2026-09-07T16:26:10Z', ltv_metrics: { predicted_roi: 0.811, users: 324, spend: 2860, attribution_coverage: 0.945, ltv_coverage: 0.968, horizon_days: 90, snapshot_date: '2026-09-07', model_version: 'v2.3' } },
+  { signal_id: '20260907162233_campaign_108', signal_type: 'FOLLOW_UP', target_dimension: 'campaign', target_id: 'campaign_108_mno208', language_code: '英语', script_no: 'LA103', shortplay_name: 'The Wolf in the Fog', reason: 'LTV选品通过: 预测ROI=59.3%，用户=118，累计消耗=760，归因覆盖率=91.8%，LTV覆盖率=94.2%，horizon=90，快照=2026-09-07，模型=v2.3', confidence: 0.70, timestamp: '2026-09-07T16:22:33Z', ltv_metrics: { predicted_roi: 0.593, users: 118, spend: 760, attribution_coverage: 0.918, ltv_coverage: 0.942, horizon_days: 90, snapshot_date: '2026-09-07', model_version: 'v2.3' } },
   { signal_id: '20260907162540_007_Shuer_QT_EN_LA274_260608_FF_MYAISC', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '007_Shuer_QT_EN_LA274_260608_FF_MYAISC', language_code: '英语', script_no: 'LA274', shortplay_name: 'Road of Lust', reason: '选品通过: 累计ROI=68.4% > 50%，波动率=0.23 ≤ 0.50，日均消耗=412.0 ≥ 200', confidence: 0.85, timestamp: '2026-09-07T16:25:40Z' },
   { signal_id: '20260907162318_012_Wuya_QT_KO_LA118_260702_FF_MYAISC', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '012_Wuya_QT_KO_LA118_260702_FF_MYAISC', language_code: '韩语', script_no: 'LA118', shortplay_name: 'Love After the Storm', reason: '选品通过: 累计ROI=57.2% > 50%，波动率=0.41 ≤ 0.50，日均消耗=268.5 ≥ 200', confidence: 0.80, timestamp: '2026-09-07T16:23:18Z' },
   { signal_id: '20260907162105_021_Jinkui_QT_AR_LA033_260701_FF_MA', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '021_Jinkui_QT_AR_LA033_260701_FF_MA', language_code: '阿拉伯语', script_no: 'LA033', shortplay_name: 'Marry Me, Stranger', reason: '选品通过: 累计ROI=81.6% > 50%，波动率=0.35 ≤ 0.50，日均消耗=503.0 ≥ 200', confidence: 0.85, timestamp: '2026-09-07T16:21:05Z' },
@@ -132,14 +189,21 @@ const PAGE_SIZE = 20
 const decisions = ref<any[]>([...MOCK_SIGNALS])
 const filterType = ref('')
 const filterDimension = ref('')
+const filterSource = ref('')
 const currentPage = ref(1)
 const detailVisible = ref(false)
 const detailContent = ref('')
+const detailRow = ref<any>(null)
+
+function sourceOf(row: any): 'ltv' | 'roi' {
+  return String(row.reason || '').startsWith('LTV选品通过') ? 'ltv' : 'roi'
+}
 
 const filteredDecisions = computed(() => {
   let rows = decisions.value
   if (filterType.value) rows = rows.filter((d) => d.signal_type === filterType.value)
   if (filterDimension.value) rows = rows.filter((d) => d.target_dimension === filterDimension.value)
+  if (filterSource.value) rows = rows.filter((d) => sourceOf(d) === filterSource.value)
   return rows
 })
 
@@ -150,7 +214,7 @@ const pagedDecisions = computed(() => {
   return filteredDecisions.value.slice(start, start + PAGE_SIZE)
 })
 
-watch([filterType, filterDimension], () => {
+watch([filterType, filterDimension, filterSource], () => {
   currentPage.value = 1
 })
 
@@ -161,6 +225,7 @@ function refresh() {
 }
 
 function showDetail(row: any) {
+  detailRow.value = row
   detailContent.value = JSON.stringify(row, null, 2)
   detailVisible.value = true
 }
@@ -189,5 +254,17 @@ pre {
   padding: 15px;
   border-radius: 4px;
   overflow-x: auto;
+}
+
+.muted {
+  color: #c0c4cc;
+}
+
+.confidence-note {
+  color: #e6a23c;
+}
+
+.ltv-reason {
+  color: #606266;
 }
 </style>
