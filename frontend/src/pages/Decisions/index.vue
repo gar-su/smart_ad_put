@@ -57,6 +57,12 @@
             <el-tag v-else type="info" size="small">ROI 链</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="阶段" width="190">
+          <template #default="{ row }">
+            <span v-if="row.stage" class="muted-key">{{ row.stage }}</span>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="维度" width="110">
           <template #default="{ row }">
             <el-tag v-if="row.target_dimension === 'product'" type="success" size="small">短剧</el-tag>
@@ -122,6 +128,7 @@
           <el-descriptions-item label="链路来源">LTV 链</el-descriptions-item>
           <el-descriptions-item label="信号类型">{{ detailRow.signal_type }}</el-descriptions-item>
           <el-descriptions-item label="目标维度">{{ detailRow.target_dimension }}</el-descriptions-item>
+          <el-descriptions-item label="阶段">{{ detailRow.stage || '-' }}</el-descriptions-item>
           <el-descriptions-item label="目标ID">{{ detailRow.target_id }}</el-descriptions-item>
           <el-descriptions-item label="点估计预测 ROI">{{ (detailRow.ltv_metrics.predicted_roi * 100).toFixed(1) }}%</el-descriptions-item>
           <el-descriptions-item label="已归因用户数">{{ detailRow.ltv_metrics.users }}</el-descriptions-item>
@@ -149,10 +156,10 @@ import { QuestionFilled } from '@element-plus/icons-vue'
 
 // 前端 mock：不请求后端，页面数据源即此处示例数据（与 BuildSignal 契约一致）
 const MOCK_SIGNALS = [
-  { signal_id: '20260907163012_007_Shuer_QT_EN_LA274_260608_FF_MYAISC', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '007_Shuer_QT_EN_LA274_260608_FF_MYAISC', language_code: '英语', script_no: 'LA274', shortplay_name: 'Road of Lust', reason: 'LTV选品通过: 预测ROI=72.4%，用户=186，累计消耗=1,240，归因覆盖率=94.1%，LTV覆盖率=96.2%，horizon=90，快照=2026-09-07，模型=v2.3', confidence: 0.70, timestamp: '2026-09-07T16:30:12Z', ltv_metrics: { predicted_roi: 0.724, users: 186, spend: 1240, attribution_coverage: 0.941, ltv_coverage: 0.962, horizon_days: 90, snapshot_date: '2026-09-07', model_version: 'v2.3' } },
-  { signal_id: '20260907162845_012_Wuya_QT_KO_LA118_260702_FF_MYAISC', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '012_Wuya_QT_KO_LA118_260702_FF_MYAISC', language_code: '韩语', script_no: 'LA118', shortplay_name: 'Love After the Storm', reason: 'LTV选品通过: 预测ROI=65.8%，用户=142，累计消耗=980，归因覆盖率=93.2%，LTV覆盖率=95.1%，horizon=90，快照=2026-09-07，模型=v2.3', confidence: 0.70, timestamp: '2026-09-07T16:28:45Z', ltv_metrics: { predicted_roi: 0.658, users: 142, spend: 980, attribution_coverage: 0.932, ltv_coverage: 0.951, horizon_days: 90, snapshot_date: '2026-09-07', model_version: 'v2.3' } },
-  { signal_id: '20260907162610_2046008811200349184', signal_type: 'FOLLOW_UP', target_dimension: 'product', target_id: '2046008811200349184', language_code: '西班牙语', script_no: 'LA199', shortplay_name: "The Mafia's Promise", reason: 'LTV选品通过: 预测ROI=81.1%，用户=324，累计消耗=2,860，归因覆盖率=94.5%，LTV覆盖率=96.8%，horizon=90，快照=2026-09-07，模型=v2.3', confidence: 0.70, timestamp: '2026-09-07T16:26:10Z', ltv_metrics: { predicted_roi: 0.811, users: 324, spend: 2860, attribution_coverage: 0.945, ltv_coverage: 0.968, horizon_days: 90, snapshot_date: '2026-09-07', model_version: 'v2.3' } },
-  { signal_id: '20260907162233_campaign_108', signal_type: 'FOLLOW_UP', target_dimension: 'campaign', target_id: 'campaign_108_mno208', language_code: '英语', script_no: 'LA103', shortplay_name: 'The Wolf in the Fog', reason: 'LTV选品通过: 预测ROI=59.3%，用户=118，累计消耗=760，归因覆盖率=91.8%，LTV覆盖率=94.2%，horizon=90，快照=2026-09-07，模型=v2.3', confidence: 0.70, timestamp: '2026-09-07T16:22:33Z', ltv_metrics: { predicted_roi: 0.593, users: 118, spend: 760, attribution_coverage: 0.918, ltv_coverage: 0.942, horizon_days: 90, snapshot_date: '2026-09-07', model_version: 'v2.3' } },
+  { signal_id: '20260907163012_007_Shuer_QT_EN_LA274_260608_FF_MYAISC', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '007_Shuer_QT_EN_LA274_260608_FF_MYAISC', language_code: '英语', script_no: 'LA274', shortplay_name: 'Road of Lust', stage: 'ltv_sustained', reason: 'LTV选品通过[ltv_sustained]: 预测ROI=72.4%，用户=186，累计消耗=1,240，归因覆盖率=94.1%，LTV覆盖率=96.2%，horizon=90，快照=2026-09-07，模型=v2.3', confidence: 0.70, timestamp: '2026-09-07T16:30:12Z', ltv_metrics: { predicted_roi: 0.724, users: 186, spend: 1240, attribution_coverage: 0.941, ltv_coverage: 0.962, horizon_days: 90, snapshot_date: '2026-09-07', model_version: 'v2.3' } },
+  { signal_id: '20260907162845_012_Wuya_QT_KO_LA118_260702_FF_MYAISC', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '012_Wuya_QT_KO_LA118_260702_FF_MYAISC', language_code: '韩语', script_no: 'LA118', shortplay_name: 'Love After the Storm', stage: 'ltv_entry', reason: 'LTV选品通过[ltv_entry]: 预测ROI=65.8%，用户=142，累计消耗=980，归因覆盖率=93.2%，LTV覆盖率=95.1%，horizon=90，快照=2026-09-07，模型=v2.3', confidence: 0.70, timestamp: '2026-09-07T16:28:45Z', ltv_metrics: { predicted_roi: 0.658, users: 142, spend: 980, attribution_coverage: 0.932, ltv_coverage: 0.951, horizon_days: 90, snapshot_date: '2026-09-07', model_version: 'v2.3' } },
+  { signal_id: '20260907162610_2046008811200349184', signal_type: 'FOLLOW_UP', target_dimension: 'product', target_id: '2046008811200349184', language_code: '西班牙语', script_no: 'LA199', shortplay_name: "The Mafia's Promise", stage: 'ltv_sustained', reason: 'LTV选品通过[ltv_sustained]: 预测ROI=81.1%，用户=324，累计消耗=2,860，归因覆盖率=94.5%，LTV覆盖率=96.8%，horizon=90，快照=2026-09-07，模型=v2.3', confidence: 0.70, timestamp: '2026-09-07T16:26:10Z', ltv_metrics: { predicted_roi: 0.811, users: 324, spend: 2860, attribution_coverage: 0.945, ltv_coverage: 0.968, horizon_days: 90, snapshot_date: '2026-09-07', model_version: 'v2.3' } },
+  { signal_id: '20260907162233_campaign_108', signal_type: 'FOLLOW_UP', target_dimension: 'campaign', target_id: 'campaign_108_mno208', language_code: '英语', script_no: 'LA103', shortplay_name: 'The Wolf in the Fog', stage: 'ltv_entry', reason: 'LTV选品通过[ltv_entry]: 预测ROI=59.3%，用户=118，累计消耗=760，归因覆盖率=91.8%，LTV覆盖率=94.2%，horizon=90，快照=2026-09-07，模型=v2.3', confidence: 0.70, timestamp: '2026-09-07T16:22:33Z', ltv_metrics: { predicted_roi: 0.593, users: 118, spend: 760, attribution_coverage: 0.918, ltv_coverage: 0.942, horizon_days: 90, snapshot_date: '2026-09-07', model_version: 'v2.3' } },
   { signal_id: '20260907162540_007_Shuer_QT_EN_LA274_260608_FF_MYAISC', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '007_Shuer_QT_EN_LA274_260608_FF_MYAISC', language_code: '英语', script_no: 'LA274', shortplay_name: 'Road of Lust', reason: '选品通过: 累计ROI=68.4% > 50%，波动率=0.23 ≤ 0.50，日均消耗=412.0 ≥ 200', confidence: 0.85, timestamp: '2026-09-07T16:25:40Z' },
   { signal_id: '20260907162318_012_Wuya_QT_KO_LA118_260702_FF_MYAISC', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '012_Wuya_QT_KO_LA118_260702_FF_MYAISC', language_code: '韩语', script_no: 'LA118', shortplay_name: 'Love After the Storm', reason: '选品通过: 累计ROI=57.2% > 50%，波动率=0.41 ≤ 0.50，日均消耗=268.5 ≥ 200', confidence: 0.80, timestamp: '2026-09-07T16:23:18Z' },
   { signal_id: '20260907162105_021_Jinkui_QT_AR_LA033_260701_FF_MA', signal_type: 'FOLLOW_UP', target_dimension: 'material', target_id: '021_Jinkui_QT_AR_LA033_260701_FF_MA', language_code: '阿拉伯语', script_no: 'LA033', shortplay_name: 'Marry Me, Stranger', reason: '选品通过: 累计ROI=81.6% > 50%，波动率=0.35 ≤ 0.50，日均消耗=503.0 ≥ 200', confidence: 0.85, timestamp: '2026-09-07T16:21:05Z' },
@@ -258,6 +265,11 @@ pre {
 
 .muted {
   color: #c0c4cc;
+}
+
+.muted-key {
+  color: #909399;
+  font-size: 12px;
 }
 
 .confidence-note {

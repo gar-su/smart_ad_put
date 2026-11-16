@@ -153,7 +153,7 @@ const ltvStats = reactive({
 })
 
 const ltvCards = computed(() => [
-  { label: 'LTV 入选信号', value: ltvStats.signals, color: '#8e44ad', icon: TrendCharts },
+  { label: 'LTV 跟投信号', value: ltvStats.signals, color: '#8e44ad', icon: TrendCharts },
   { label: '平均预测 ROI', value: ltvStats.avgPredictedRoi, color: '#409eff', icon: PieChart },
   { label: '归因覆盖率', value: ltvStats.attributionCoverage, color: '#67c23a', icon: Connection },
   { label: 'LTV 覆盖率', value: ltvStats.ltvCoverage, color: '#00a6a6', icon: DataAnalysis },
@@ -332,7 +332,7 @@ function initLtvChart() {
       type: 'category',
       data: ltvDimensionData.map(d => d.name)
     },
-    yAxis: { type: 'value', name: '入选信号数' },
+    yAxis: { type: 'value', name: '跟投信号数' },
     series: [
       {
         type: 'bar',

@@ -74,7 +74,24 @@
         </el-table-column>
       </el-table>
 
-      <p class="hint">阶段命名、阶段数量与是否需要观察期同样待回测确定，本版不提供 LTV 阶段开关。信号类型：仅 FOLLOW_UP；是否产 ELIMINATE 待回测后确认。</p>
+      <div class="section-title">LTV 阶段（默认映射）</div>
+      <el-table :data="ltvStages" border stripe size="default" class="ltv-stage-table">
+        <el-table-column prop="label" label="阶段" width="140" />
+        <el-table-column prop="stage" label="阶段标识" min-width="220" />
+        <el-table-column label="信号类型" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.signalType === '跟投'" type="success" size="small">跟投</el-tag>
+            <el-tag v-else type="info" size="small">不产出</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="阶段转移阈值" width="130" align="center">
+          <template #default>
+            <el-tag type="warning" size="small">待回测</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <p class="hint">5 个 LTV 阶段为占位，名称、数量与转移阈值回测后确认；entry / sustained 跟投，observing / declining / low_value 不产出；是否产 ELIMINATE 待回测后确认。现有 ROI 阶段配置不受影响。</p>
     </el-card>
 
     <el-dialog v-model="dialogVisible" :title="`编辑 ${editingKey}`" width="380px">
@@ -146,7 +163,9 @@ const MOCK_STAGES: { value: string; label: string }[] = [
 
 // LTV 选品参数（候选值，回测后确定；本页只展示，不提供编辑）
 const ltvParams = [
-  { name: '盈利线阈值 θ', value: '40%（候选）', desc: '点估计预测 ROI 的入选阈值' },
+  { name: '盈利线阈值 θ', value: '40%（候选）', desc: '预测 ROI 转入 entry / sustained 的阈值' },
+  { name: '低价值线 θ_low', value: '待回测', desc: '区分 observing / declining 与 low_value' },
+  { name: '持续判定次数 M', value: '3 次（候选）', desc: '区分 entry 与 sustained' },
   { name: '活跃窗口 N', value: '7 天（候选）', desc: '目标近 N 日有消耗才参与判定' },
   { name: '最小样本 n_min', value: '30（候选）', desc: '目标下已归因用户数下限' },
   {
@@ -154,8 +173,16 @@ const ltvParams = [
     value: '全部历史累计（候选）',
     desc: '回测对比全部历史 / 近 90 天 / 与 LTV 周期对齐三种口径',
   },
-  { name: '阶段定义', value: '待回测', desc: '阶段命名、数量与是否需要观察期' },
   { name: '信号类型', value: '仅 FOLLOW_UP', desc: '是否产 ELIMINATE 待回测后确认' },
+]
+
+// LTV 阶段默认映射：entry / sustained 跟投，其余不产出；名称与阈值待回测
+const ltvStages = [
+  { label: '观察', stage: 'ltv_observing', signalType: '不产出' },
+  { label: '入场', stage: 'ltv_entry', signalType: '跟投' },
+  { label: '稳定', stage: 'ltv_sustained', signalType: '跟投' },
+  { label: '回落', stage: 'ltv_declining', signalType: '不产出' },
+  { label: '低价值', stage: 'ltv_low_value', signalType: '不产出' },
 ]
 
 type SignalType = '' | 'FOLLOW_UP' | 'ELIMINATE'
@@ -249,5 +276,12 @@ function confirmEdit() {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.section-title {
+  margin: 18px 0 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #303133;
 }
 </style>
