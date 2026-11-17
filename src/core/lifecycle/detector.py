@@ -598,10 +598,10 @@ class MaterialLifecycleDetector:
       近3日ROI > 40% 且 近2日消耗占比 >= 50%    → MATERIAL_ENTRY
       其他                                     → MATERIAL_OBSERVING
 
-    SEGMENT 2 (>= 5 个活跃日):
+    SEGMENT 2 (>= 5 个活跃日，按近3日ROI区间互斥):
       近3日ROI < 10%                           → MATERIAL_ELIMINATED
-      曾达标 且 (ROI较峰值降>50% 或 CTR较前3日降>20%) → MATERIAL_FATIGUE
       近3日ROI > 40% 且 近2日ROI均值>=30% 且 近2日消耗占比>=50% → MATERIAL_SUSTAINED
+      10% <= 近3日ROI <= 40% 且 曾达标 且 (ROI较峰值降>50% 或 CTR较前3日降>20%) → MATERIAL_FATIGUE
       其他                                     → MATERIAL_OBSERVING
     """
 
@@ -675,33 +675,8 @@ class MaterialLifecycleDetector:
                 metrics={"active_days": metrics.active_days, "recent_3d_roi": metrics.recent_3d_roi},
             )
 
-        roi_fatigue = (
-            metrics.peak_daily_roi >= self.roi.PROFITABLE_ROI
-            and metrics.recent_2d_roi_avg
-            < metrics.peak_daily_roi * (1 - self.material.ROI_DROP_FROM_PEAK)
-        )
-        ctr_fatigue = (
-            metrics.prior_3d_ctr > 0
-            and metrics.recent_2d_ctr < metrics.prior_3d_ctr * (1 - self.material.CTR_DROP)
-        )
-        if roi_fatigue or ctr_fatigue:
-            return DetectionResult(
-                stage=Stage.MATERIAL_FATIGUE,
-                confidence=0.80,
-                reason=(
-                    f"疲劳期: 峰值ROI={metrics.peak_daily_roi * 100:.1f}%，"
-                    f"近2日ROI均值={metrics.recent_2d_roi_avg * 100:.1f}%，"
-                    f"CTR {metrics.prior_3d_ctr * 100:.2f}% → {metrics.recent_2d_ctr * 100:.2f}%"
-                ),
-                metrics={
-                    "peak_daily_roi": metrics.peak_daily_roi,
-                    "recent_2d_roi_avg": metrics.recent_2d_roi_avg,
-                    "recent_2d_ctr": metrics.recent_2d_ctr,
-                    "prior_3d_ctr": metrics.prior_3d_ctr,
-                },
-            )
-
-        # 持续: 近3日 ROI > 40% + 近2日 ROI 均值 >= 30% + 消耗未萎缩
+        # 稳定: 近3日 ROI > 40% + 近2日 ROI 均值 >= 30% + 消耗未萎缩
+        # 与淘汰、疲劳按近3日 ROI 区间互斥，不再受判断顺序影响
         if (
             metrics.recent_3d_roi > self.roi.PROFITABLE_ROI
             and metrics.recent_2d_roi_avg >= self.material.RECENT_2D_ROI_MIN
@@ -719,6 +694,39 @@ class MaterialLifecycleDetector:
                     "recent_3d_roi": metrics.recent_3d_roi,
                     "recent_2d_roi_avg": metrics.recent_2d_roi_avg,
                     "recent_2d_cost_ratio": metrics.recent_2d_cost_ratio,
+                },
+            )
+
+        # 疲劳: 近3日 ROI 落在 10%-40%，曾达标且 ROI/CTR 明显回落
+        peak_qualified = metrics.peak_daily_roi >= self.roi.PROFITABLE_ROI
+        roi_fatigue = (
+            metrics.recent_2d_roi_avg
+            < metrics.peak_daily_roi * (1 - self.material.ROI_DROP_FROM_PEAK)
+        )
+        ctr_fatigue = (
+            metrics.prior_3d_ctr > 0
+            and metrics.recent_2d_ctr < metrics.prior_3d_ctr * (1 - self.material.CTR_DROP)
+        )
+        if (
+            self.roi.ROI_VERY_LOW <= metrics.recent_3d_roi <= self.roi.PROFITABLE_ROI
+            and peak_qualified
+            and (roi_fatigue or ctr_fatigue)
+        ):
+            return DetectionResult(
+                stage=Stage.MATERIAL_FATIGUE,
+                confidence=0.80,
+                reason=(
+                    f"疲劳期: 峰值ROI={metrics.peak_daily_roi * 100:.1f}%，"
+                    f"近3日ROI={metrics.recent_3d_roi * 100:.1f}%，"
+                    f"近2日ROI均值={metrics.recent_2d_roi_avg * 100:.1f}%，"
+                    f"CTR {metrics.prior_3d_ctr * 100:.2f}% → {metrics.recent_2d_ctr * 100:.2f}%"
+                ),
+                metrics={
+                    "peak_daily_roi": metrics.peak_daily_roi,
+                    "recent_3d_roi": metrics.recent_3d_roi,
+                    "recent_2d_roi_avg": metrics.recent_2d_roi_avg,
+                    "recent_2d_ctr": metrics.recent_2d_ctr,
+                    "prior_3d_ctr": metrics.prior_3d_ctr,
                 },
             )
 

@@ -511,18 +511,18 @@
       <p class="section-kicker" id="heroTitle">核心结论 · A 方案选品闸门</p>
       <div class="hero-figure"><span id="heroValue">73.0%</span></div>
       <p class="hero-label">留出集选品精确率（未来 ROI ≥ 40%）</p>
-      <p class="hero-note">在原始阶段信号上叠加「累计 ROI &gt; 50% + 波动率 ≤ 0.5 + 日均消耗 ≥ 200」，精确率从 38.4% 提到 73.0%；代价是信号量从 352 条收到 37 条。</p>
+      <p class="hero-note">在原始阶段信号上叠加「累计 ROI &gt; 50% + 波动率 ≤ 0.5 + 日均消耗 ≥ 200」，精确率从 38.8% 提到 73.0%；代价是信号量从 366 条收到 37 条。</p>
     </div>
     <div class="stat-grid">
       <div class="stat-tile">
         <div class="label">留出集精确率</div>
         <div class="value">73.0%</div>
-        <div class="note">原始阶段信号 38.4%</div>
+        <div class="note">原始阶段信号 38.8%</div>
       </div>
       <div class="stat-tile">
         <div class="label">闸门通过率</div>
-        <div class="value">8.9%</div>
-        <div class="note">1,252 → 111</div>
+        <div class="value">8.7%</div>
+        <div class="note">1,283 → 111</div>
       </div>
       <div class="stat-tile">
         <div class="label">入选信号</div>
@@ -532,7 +532,7 @@
       <div class="stat-tile">
         <div class="label">覆盖率</div>
         <div class="value">3.4%</div>
-        <div class="note">从 31.9% 收紧</div>
+        <div class="note">从 33.2% 收紧</div>
       </div>
     </div>
   </section>
@@ -596,19 +596,19 @@
             <span class="outcome bad"><span class="dot bad"></span>淘汰期</span>
           </div>
         </div>
-        <div class="rule warn-rule">
-          <div class="num">2</div>
-          <div>
-            <div class="cond">峰值 ROI ≥ 40% <span class="muted">且</span>（近 2 日 ROI &lt; 峰值 × 50% <span class="muted">或</span> 近 2 日 CTR &lt; 前 3 日 × 80%）</div>
-            <span class="outcome warn"><span class="dot warn"></span>疲劳期</span>
-          </div>
-        </div>
         <div class="rule signal-rule">
-          <div class="num">3</div>
+          <div class="num">2</div>
           <div>
             <div class="cond">近 3 日 ROI &gt; 40% <span class="muted">且</span> 近 2 日 ROI 均值 ≥ 30% <span class="muted">且</span> 近 2 日消耗占比 ≥ 50%</div>
             <span class="outcome signal"><span class="dot signal"></span>稳定期 · 产跟投信号</span>
             <span class="enter-gate">↓ 进入选品闸门</span>
+          </div>
+        </div>
+        <div class="rule warn-rule">
+          <div class="num">3</div>
+          <div>
+            <div class="cond">10% ≤ 近 3 日 ROI ≤ 40% <span class="muted">且</span> 峰值 ROI ≥ 40% <span class="muted">且</span>（近 2 日 ROI &lt; 峰值 × 50% <span class="muted">或</span> 近 2 日 CTR &lt; 前 3 日 × 80%）</div>
+            <span class="outcome warn"><span class="dot warn"></span>疲劳期</span>
           </div>
         </div>
         <div class="rule">
@@ -618,7 +618,7 @@
             <span class="outcome"><span class="dot"></span>待观察</span>
           </div>
         </div>
-        <div class="tree-foot">当前顺序：淘汰 → 疲劳 → 稳定。审查建议把稳定提到疲劳之前。</div>
+        <div class="tree-foot">≥ 5 天按近 3 日 ROI 区间互斥：&lt;10% 淘汰、&gt;40% 稳定、10%–40% 才看疲劳回落。</div>
       </div>
     </div>
     <div class="tree-legend">
@@ -631,8 +631,8 @@
     <aside class="callout" id="knownIssue">
       <div class="callout-icon" aria-hidden="true">!</div>
       <div>
-        <strong>审查补充：疲劳期会抢占稳定期信号</strong>
-        <p>Day 5 有 98 个素材满足稳定期条件，却被疲劳期先判走；它们的未来达标率 51.0%，反而高于真正进入稳定期的 45.5%。建议把稳定期判定提到疲劳期之前：留出集信号 352 → 366，精确率 38.4% → 38.8%。本次报告仍是按当前顺序回测的结果。</p>
+        <strong>规则调整：疲劳期不再抢占稳定期</strong>
+        <p>旧版按「淘汰 → 疲劳 → 稳定」顺序判定，Day 5 有 98 个素材满足稳定期条件却被疲劳先判走。现改为按近 3 日 ROI 区间互斥：淘汰 &lt;10%、稳定 &gt;40%、疲劳 10%–40%。Day 5 稳定期由 101 条恢复至 199 条、疲劳期由 835 条降至 409 条，稳定期精确率由 45.5% 提升至 48.2%。</p>
       </div>
     </aside>
   </section>
@@ -661,7 +661,7 @@
       <div class="chart-head">
         <div>
           <h3>闸门逐级淘汰</h3>
-          <p id="funnelSub">全集 1,252 条原始阶段信号 → 111 条通过</p>
+          <p id="funnelSub">全集 1,283 条原始阶段信号 → 111 条通过</p>
         </div>
         <div class="legend-inline"><span><span class="key-bar"></span>剩余信号</span></div>
       </div>
@@ -821,9 +821,9 @@
         n: 2028,
         base: 0.251,
         stages: [
-          { key: "sustained", label: "稳定期", n: 101, cov: 0.050, prec: 0.455, lift: 1.81, signal: true },
-          { key: "observing", label: "待观察", n: 349, cov: 0.172, prec: 0.344, lift: 1.37, signal: false },
-          { key: "fatigue", label: "疲劳期", n: 835, cov: 0.412, prec: 0.308, lift: 1.22, signal: false },
+          { key: "sustained", label: "稳定期", n: 199, cov: 0.098, prec: 0.482, lift: 1.92, signal: true },
+          { key: "observing", label: "待观察", n: 677, cov: 0.334, prec: 0.325, lift: 1.29, signal: false },
+          { key: "fatigue", label: "疲劳期", n: 409, cov: 0.202, prec: 0.262, lift: 1.04, signal: false },
           { key: "eliminated", label: "淘汰期", n: 743, cov: 0.366, prec: 0.117, lift: 0.47, signal: false }
         ]
       },
@@ -832,9 +832,9 @@
         n: 590,
         base: 0.264,
         stages: [
-          { key: "sustained", label: "稳定期", n: 22, cov: 0.037, prec: 0.682, lift: 2.58, signal: true },
-          { key: "observing", label: "待观察", n: 114, cov: 0.193, prec: 0.368, lift: 1.39, signal: false },
-          { key: "fatigue", label: "疲劳期", n: 237, cov: 0.402, prec: 0.283, lift: 1.07, signal: false },
+          { key: "sustained", label: "稳定期", n: 42, cov: 0.071, prec: 0.571, lift: 2.16, signal: true },
+          { key: "observing", label: "待观察", n: 211, cov: 0.358, prec: 0.327, lift: 1.24, signal: false },
+          { key: "fatigue", label: "疲劳期", n: 120, cov: 0.203, prec: 0.258, lift: 0.98, signal: false },
           { key: "eliminated", label: "淘汰期", n: 217, cov: 0.368, prec: 0.147, lift: 0.56, signal: false }
         ]
       }
@@ -842,37 +842,37 @@
   };
 
   const SIGNALS = [
-    { label: "全集", n: 111, raw: 1252, cov: 0.029, prec: 0.730 },
-    { label: "校准集", n: 74, raw: 900, cov: 0.027, prec: 0.730 },
-    { label: "留出集", n: 37, raw: 352, cov: 0.034, prec: 0.730, highlight: true }
+    { label: "全集", n: 111, raw: 1283, cov: 0.029, prec: 0.730 },
+    { label: "校准集", n: 74, raw: 917, cov: 0.027, prec: 0.730 },
+    { label: "留出集", n: 37, raw: 366, cov: 0.034, prec: 0.730, highlight: true }
   ];
 
   const SIGNAL_COMPARE = [
-    { label: "全集 · 原始阶段信号", n: 1252, cov: 0.328, prec: 0.371 },
+    { label: "全集 · 原始阶段信号", n: 1283, cov: 0.336, prec: 0.373 },
     { label: "全集 · A 方案闸门后", n: 111, cov: 0.029, prec: 0.730 },
-    { label: "留出集 · 原始阶段信号", n: 352, cov: 0.319, prec: 0.384 },
+    { label: "留出集 · 原始阶段信号", n: 366, cov: 0.332, prec: 0.388 },
     { label: "留出集 · A 方案闸门后", n: 37, cov: 0.034, prec: 0.730 },
     { label: "校准集 · A 方案闸门后", n: 74, cov: 0.027, prec: 0.730 }
   ];
 
   const FUNNEL = [
-    { label: "原始阶段信号", n: 1252, cut: 0, note: "入场 / 稳定期" },
-    { label: "ROI > 50%", n: 758, cut: 494, note: "盈利余量" },
-    { label: "波动率 ≤ 0.50", n: 215, cut: 543, note: "过滤一日冲高" },
+    { label: "原始阶段信号", n: 1283, cut: 0, note: "入场 / 稳定期" },
+    { label: "ROI > 50%", n: 781, cut: 502, note: "盈利余量" },
+    { label: "波动率 ≤ 0.50", n: 215, cut: 566, note: "过滤一日冲高" },
     { label: "日均消耗 ≥ 200", n: 111, cut: 104, note: "最终入选", final: true }
   ];
 
   const CHECKS = [
     { label: "留出集精确率", value: "73.0%", target: "目标 ≥ 70%" },
-    { label: "闸门通过率", value: "8.9%", target: "目标 ≥ 5%" },
+    { label: "闸门通过率", value: "8.7%", target: "目标 ≥ 5%" },
     { label: "覆盖率", value: "3.4%", target: "目标 ≥ 2%" }
   ];
 
   const SENS = [
     { group: "Day 3", label: "合并口径", series: "combined", n: 1102, cov: 0.289, prec: 0.370 },
     { group: "Day 3", label: "充值口径", series: "recharge", n: 823, cov: 0.216, prec: 0.194 },
-    { group: "Day 5", label: "合并口径", series: "combined", n: 101, cov: 0.050, prec: 0.455 },
-    { group: "Day 5", label: "充值口径", series: "recharge", n: 82, cov: 0.040, prec: 0.195 }
+    { group: "Day 5", label: "合并口径", series: "combined", n: 199, cov: 0.098, prec: 0.482 },
+    { group: "Day 5", label: "充值口径", series: "recharge", n: 157, cov: 0.077, prec: 0.223 }
   ];
 
   const GATED_SENS = [

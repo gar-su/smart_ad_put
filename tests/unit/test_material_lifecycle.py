@@ -202,18 +202,93 @@ def test_material_fatigue_when_roi_drops_over_half_from_peak() -> None:
     assert result.stage is Stage.MATERIAL_FATIGUE
 
 
-def test_material_fatigue_when_ctr_drops_over_twenty_percent() -> None:
+def test_material_fatigue_when_ctr_drops_over_twenty_percent_below_profit_line() -> None:
     m = aggregate_material(
         [
-            _mf(1, 50.0, 25.0, show=1000, click=50),
-            _mf(2, 50.0, 25.0, show=1000, click=50),
-            _mf(3, 100.0, 50.0, show=1000, click=50),
-            _mf(4, 100.0, 50.0, show=1000, click=30),
-            _mf(5, 100.0, 50.0, show=1000, click=30),
+            _mf(1, 50.0, 30.0, show=1000, click=50),  # ROI 0.60（峰值）
+            _mf(2, 50.0, 17.5, show=1000, click=50),
+            _mf(3, 50.0, 17.5, show=1000, click=50),
+            _mf(4, 50.0, 17.5, show=1000, click=30),
+            _mf(5, 50.0, 17.5, show=1000, click=30),
         ]
     )
     result = _detect(m)
     assert result.stage is Stage.MATERIAL_FATIGUE
+
+
+def test_material_sustained_wins_over_peak_drop_above_profit_line() -> None:
+    # 峰值 100%，近 2 日 45%：较峰值腰斩，但近 3 日仍 > 40%，应判稳定而非疲劳
+    m = aggregate_material(
+        [
+            _mf(1, 5.0, 5.0),  # ROI 1.0（峰值，小消耗）
+            _mf(2, 100.0, 45.0),
+            _mf(3, 100.0, 45.0),
+            _mf(4, 100.0, 45.0),
+            _mf(5, 200.0, 90.0),
+        ]
+    )
+    result = _detect(m)
+    assert result.stage is Stage.MATERIAL_SUSTAINED
+
+
+def test_material_fatigue_at_forty_percent_boundary() -> None:
+    # 近 3 日 ROI 恰为 40%，仍属疲劳区间
+    m = aggregate_material(
+        [
+            _mf(1, 100.0, 100.0),  # ROI 1.0（峰值）
+            _mf(2, 100.0, 40.0),
+            _mf(3, 100.0, 40.0),
+            _mf(4, 100.0, 40.0),
+            _mf(5, 100.0, 40.0),
+        ]
+    )
+    result = _detect(m)
+    assert result.stage is Stage.MATERIAL_FATIGUE
+
+
+def test_material_fatigue_at_ten_percent_boundary() -> None:
+    # 近 3 日 ROI 恰为 10%，未跌破淘汰线，仍可判疲劳
+    m = aggregate_material(
+        [
+            _mf(1, 100.0, 100.0),  # ROI 1.0（峰值）
+            _mf(2, 100.0, 10.0),
+            _mf(3, 100.0, 10.0),
+            _mf(4, 100.0, 10.0),
+            _mf(5, 100.0, 10.0),
+        ]
+    )
+    result = _detect(m)
+    assert result.stage is Stage.MATERIAL_FATIGUE
+
+
+def test_material_observing_when_fatigue_zone_has_no_drop_trigger() -> None:
+    # 近 3 日 30%，峰值 50%，但近 2 日均值未腰斩且 CTR 未明显下滑
+    m = aggregate_material(
+        [
+            _mf(1, 100.0, 50.0),
+            _mf(2, 100.0, 30.0),
+            _mf(3, 100.0, 30.0),
+            _mf(4, 100.0, 30.0),
+            _mf(5, 100.0, 30.0),
+        ]
+    )
+    result = _detect(m)
+    assert result.stage is Stage.MATERIAL_OBSERVING
+
+
+def test_material_fatigue_requires_historical_profit_peak() -> None:
+    # 从未达到 40%，即使 CTR 下滑也不判疲劳
+    m = aggregate_material(
+        [
+            _mf(1, 100.0, 20.0, show=1000, click=50),
+            _mf(2, 100.0, 20.0, show=1000, click=50),
+            _mf(3, 100.0, 20.0, show=1000, click=50),
+            _mf(4, 100.0, 20.0, show=1000, click=10),
+            _mf(5, 100.0, 20.0, show=1000, click=10),
+        ]
+    )
+    result = _detect(m)
+    assert result.stage is Stage.MATERIAL_OBSERVING
 
 
 def test_material_eliminated_takes_priority_at_five_days() -> None:

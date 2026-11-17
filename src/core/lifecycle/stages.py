@@ -65,7 +65,7 @@ class Stage(str, Enum):
     MATERIAL_OBSERVING = "material_observing"       # 待观察：活跃投放 < 3 天
     MATERIAL_ENTRY = "material_entry"               # 入场期：3-4 天，近3日ROI > 40% 且消耗未萎缩
     MATERIAL_SUSTAINED = "material_sustained"       # 稳定期：5天+，近3日ROI > 40%
-    MATERIAL_FATIGUE = "material_fatigue"           # 疲劳期：达标后 ROI / CTR 明显下滑
+    MATERIAL_FATIGUE = "material_fatigue"           # 疲劳期：曾达标后跌出盈利线，ROI / CTR 明显下滑
     MATERIAL_ELIMINATED = "material_eliminated"     # 淘汰期：近3日ROI < 10%
 
 
